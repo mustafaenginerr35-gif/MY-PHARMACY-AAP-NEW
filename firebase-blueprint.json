@@ -1,0 +1,159 @@
+{
+  "entities": {
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Financial income or expense transaction",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["income", "expense"] },
+        "amount": { "type": "number" },
+        "date": { "type": "string", "format": "date-time" },
+        "ownerId": { "type": "string" }
+      },
+       "required": ["type", "amount", "date", "ownerId"]
+    },
+    "Entity": {
+      "title": "Entity",
+      "description": "Supplier or customer entity",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "ownerId": { "type": "string" }
+      },
+      "required": ["name", "ownerId"]
+    },
+    "LedgerEntry": {
+      "title": "Ledger Entry",
+      "description": "Unified accounting ledger entry",
+      "type": "object",
+      "properties": {
+        "sourceType": { "type": "string" },
+        "sourceId": { "type": "string" },
+        "userId": { "type": "string" },
+        "branchId": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "debit": { "type": "number" },
+        "credit": { "type": "number" },
+        "amount": { "type": "number" },
+        "category": { "type": "string" },
+        "entityId": { "type": "string" },
+        "entityName": { "type": "string" },
+        "description": { "type": "string" },
+        "ownerId": { "type": "string" }
+      },
+      "required": ["sourceType", "sourceId", "userId", "branchId", "date", "amount", "ownerId"]
+    },
+    "UserSettings": {
+      "title": "User Settings",
+      "description": "Application settings for a user",
+      "type": "object",
+      "properties": {
+        "syncSettings": { "type": "object" },
+        "imageSettings": { "type": "object" }
+      }
+    },
+    "OpeningCash": {
+      "title": "Opening Cash",
+      "description": "Carried forward balance or opening starting cash",
+      "type": "object",
+      "properties": {
+        "amount": { "type": "number" },
+        "date": { "type": "string", "format": "date-time" },
+        "month": { "type": "number" },
+        "year": { "type": "number" },
+        "source": { "type": "string" },
+        "branchId": { "type": "string" },
+        "ownerId": { "type": "string" }
+      },
+      "required": ["amount", "date", "month", "year", "source", "branchId", "ownerId"]
+    },
+    "supplierOpeningBalances": {
+      "title": "Supplier Opening Balance",
+      "description": "Initial balance tracking for suppliers",
+      "type": "object",
+      "properties": {
+        "supplierId": { "type": "string" },
+        "supplierName": { "type": "string" },
+        "supplierType": { "type": "string" },
+        "openingAmount": { "type": "number" },
+        "paidAmount": { "type": "number" },
+        "remainingAmount": { "type": "number" },
+        "branchId": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "ownerId": { "type": "string" }
+      },
+      "required": ["supplierId", "openingAmount", "remainingAmount", "ownerId"]
+    },
+    "Loan": {
+      "title": "Loan",
+      "description": "Loans and returned deposits",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["outgoing", "returned"] },
+        "partyName": { "type": "string" },
+        "amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["open", "partially_returned", "fully_returned", "overdue"] },
+        "date": { "type": "string", "format": "date-time" },
+        "ownerId": { "type": "string" },
+        "branchId": { "type": "string" }
+      },
+      "required": ["type", "partyName", "amount", "status", "date", "ownerId", "branchId"]
+    },
+    "SystemConfig": {
+      "title": "System Configuration",
+      "description": "Global settings for app versioning and updates",
+      "type": "object",
+      "properties": {
+        "appVersion": { "type": "string" },
+        "schemaVersion": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "forceUpdate": { "type": "boolean" }
+      }
+    },
+    "MedicineRequest": {
+      "title": "Medicine Request",
+      "description": "Customer request for unavailable medicine",
+      "type": "object",
+      "properties": {
+        "patientName": { "type": "string" },
+        "phone": { "type": "string" },
+        "medicineName": { "type": "string" },
+        "quantity": { "type": "string" },
+        "status": { "type": "string", "enum": ["waiting", "provided", "notified"] },
+        "notes": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "branchId": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["patientName", "phone", "medicineName", "status", "ownerId"]
+    }
+  },
+  "firestore": {
+    "transactions": { "schema": "Transaction", "description": "Global transactions" },
+    "entities": { "schema": "Entity", "description": "Suppliers and accounts" },
+    "ledgerEntries": { "schema": "LedgerEntry", "description": "Detailed accounting" },
+    "branches": { "schema": "object", "description": "Pharmacy branches" },
+    "medicineRequests": { "schema": "MedicineRequest", "description": "Customer medicine requests" },
+    "historicalRecords": { "schema": "object", "description": "Past data migration" },
+    "settings": { "schema": "UserSettings", "description": "User preferences and sync settings" },
+    "notifications": { "schema": "object", "description": "System notifications" },
+    "customerDebts": { "schema": "object", "description": "Customer debts" },
+    "deadlines": { "schema": "object", "description": "Payment deadlines" },
+    "employees": { "schema": "object", "description": "Staff data" },
+    "employeeAttendance": { "schema": "object", "description": "Staff attendance" },
+    "bonuses": { "schema": "object", "description": "Bonus records" },
+    "expiredDamagedLosses": { "schema": "object", "description": "Records of expired and damaged items" },
+    "announcements": { "schema": "object", "description": "System announcements" },
+    "announcementReads": { "schema": "object", "description": "Announcements read status" },
+    "activationCodes": { "schema": "object", "description": "App activation codes" },
+    "activationRequests": { "schema": "object", "description": "Activation requests" },
+    "recoveryRequests": { "schema": "object", "description": "Account recovery" },
+    "entityActivities": { "schema": "object", "description": "Tracking entity actions" },
+    "openingCash": { "schema": "OpeningCash", "description": "Opening cash records" },
+    "supplierOpeningBalances": { "schema": "SupplierOpeningBalance", "description": "Supplier initial tracking" },
+    "loans": { "schema": "Loan", "description": "Loans and returned deposits records" },
+    "system": { "schema": "SystemConfig", "description": "Global app version and config" }
+  }
+}

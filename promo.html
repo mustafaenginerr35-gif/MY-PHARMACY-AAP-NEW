@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>فيديو ترويجي - صيدليتي</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
+    <script src="https://unpkg.com/lucide-react"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Cairo', sans-serif; background-color: black; margin: 0; overflow: hidden; }
+        .scene-container { height: 100vh; width: 100vw; display: flex; align-items: center; justify-content: center; position: relative; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script shadow>
+        const { useState, useEffect, useRef } = React;
+        const { motion, AnimatePresence } = FramerMotion;
+
+        const scenes = [
+            {
+                id: 0,
+                duration: 4000,
+                bg: 'bg-slate-900',
+                title: 'تبيع كل يوم…',
+                subtitle: 'بس ما تعرف وين تروح الفلوس؟',
+                subtitleColor: 'text-rose-400',
+                icon: 'Trash2',
+                img: 'https://picsum.photos/seed/stressed/800/600'
+            },
+            {
+                id: 1,
+                duration: 4000,
+                bg: 'bg-rose-950',
+                title: 'مكاتب… مذاخر… ديون… مصاريف…',
+                subtitle: 'وكلشي متلخبط!',
+                subtitleColor: 'text-rose-300',
+                isGrid: true
+            },
+            {
+                id: 2,
+                duration: 5000,
+                bg: 'bg-indigo-900',
+                title: 'الحل؟',
+                subtitle: 'برنامج صيدليتي',
+                subtitleColor: 'text-emerald-400',
+                isLogo: true
+            },
+            {
+                id: 3,
+                duration: 8000,
+                bg: 'bg-slate-900',
+                features: [
+                    { text: "أرباحك اليومية والشهرية", color: "text-emerald-400" },
+                    { text: "إدارة المكاتب والمذاخر", color: "text-blue-400" },
+                    { text: "تسجيل المصاريف والتسديدات", color: "text-amber-400" },
+                    { text: "حساب الخسائر والمواد التالفة", color: "text-rose-400" }
+                ]
+            },
+            {
+                id: 4,
+                duration: 5000,
+                bg: 'bg-emerald-900',
+                title: 'تقرير PDF ترسله للشريك',
+                subtitle: 'خلال ثواني!',
+                subtitleColor: 'text-emerald-200',
+                isPdf: true
+            },
+            {
+                id: 5,
+                duration: 5000,
+                bg: 'bg-slate-900',
+                title: 'أكثر من مستخدم…',
+                subtitle: 'نفس الحساب',
+                subtitleColor: 'text-indigo-400',
+                isUsers: true
+            },
+            {
+                id: 6,
+                duration: 8000,
+                bg: 'bg-gradient-to-br from-indigo-900 to-slate-900',
+                title: 'مو برنامج…',
+                subtitle: 'هذا سيطرة على فلوسك',
+                subtitleColor: 'text-emerald-400',
+                isFinal: true
+            }
+        ];
+
+        function App() {
+            const [currentScene, setCurrentScene] = useState(0);
+            const [progress, setProgress] = useState(0);
+            const [isPlaying, setIsPlaying] = useState(true);
+
+            useEffect(() => {
+                let timer;
+                if (isPlaying) {
+                    timer = setInterval(() => {
+                        setProgress(prev => {
+                            const step = 100 / (scenes[currentScene].duration / 100);
+                            if (prev + step >= 100) {
+                                if (currentScene < scenes.length - 1) {
+                                    setCurrentScene(s => s + 1);
+                                    return 0;
+                                } else {
+                                    setIsPlaying(false);
+                                    return 100;
+                                }
+                            }
+                            return prev + step;
+                        });
+                    }, 100);
+                }
+                return () => clearInterval(timer);
+            }, [isPlaying, currentScene]);
+
+            const scene = scenes[currentScene];
+
+            return React.createElement('div', { className: 'relative h-screen w-screen overflow-hidden' },
+                // Progress Bars
+                React.createElement('div', { className: 'absolute top-6 left-6 right-6 flex gap-2 z-50' },
+                    scenes.map((s, idx) => 
+                        React.createElement('div', { key: idx, className: 'h-1 flex-1 bg-white/20 rounded-full overflow-hidden' },
+                            React.createElement('div', { 
+                                className: 'h-full bg-white',
+                                style: { width: idx < currentScene ? '100%' : idx === currentScene ? `${progress}%` : '0%' }
+                            })
+                        )
+                    )
+                ),
+
+                // Scenes
+                React.createElement(AnimatePresence, { mode: 'wait' },
+                    React.createElement(motion.div, {
+                        key: currentScene,
+                        initial: { opacity: 0, scale: 1.1 },
+                        animate: { opacity: 1, scale: 1 },
+                        exit: { opacity: 0, scale: 0.9 },
+                        transition: { duration: 0.5 },
+                        className: `scene-container ${scene.bg}`
+                    },
+                        scene.id === 0 && React.createElement('div', { className: 'text-center' },
+                            React.createElement(motion.img, { 
+                                src: scene.img, 
+                                className: 'w-64 h-64 rounded-3xl mb-8 mx-auto border-4 border-white/10 shadow-2xl grayscale',
+                                initial: { y: 20 }, animate: { y: 0 }
+                            }),
+                            React.createElement('h2', { className: 'text-4xl font-bold text-white' }, 
+                                scene.title, React.createElement('br'), 
+                                React.createElement('span', { className: scene.subtitleColor }, scene.subtitle)
+                            )
+                        ),
+
+                        scene.id === 1 && React.createElement('div', { className: 'text-center' },
+                            React.createElement('div', { className: 'grid grid-cols-2 gap-4 mb-8' },
+                                [1,2,3,4].map(i => React.createElement('div', { key: i, className: 'bg-white/10 p-6 rounded-xl border border-white/20' }, '📄'))
+                            ),
+                            React.createElement('h2', { className: 'text-4xl font-bold text-white' }, 
+                                scene.title, React.createElement('br'), 
+                                React.createElement('span', { className: scene.subtitleColor }, scene.subtitle)
+                            )
+                        ),
+
+                        scene.isLogo && React.createElement('div', { className: 'text-center' },
+                            React.createElement(motion.div, { 
+                                className: 'bg-white p-8 rounded-3xl mb-8 inline-block shadow-2xl',
+                                animate: { rotate: [0, 10, -10, 0] }, transition: { repeat: Infinity, duration: 2 }
+                            }, '✨'),
+                            React.createElement('h2', { className: 'text-5xl font-black text-white' }, 
+                                scene.title, React.createElement('br'), 
+                                React.createElement('span', { className: scene.subtitleColor }, scene.subtitle)
+                            )
+                        ),
+
+                        scene.features && React.createElement('div', { className: 'w-full max-w-xl px-6' },
+                            scene.features.map((f, i) => 
+                                React.createElement(motion.div, { 
+                                    key: i,
+                                    initial: { x: -50, opacity: 0 },
+                                    animate: { x: 0, opacity: 1 },
+                                    transition: { delay: i * 0.5 },
+                                    className: 'flex items-center gap-4 bg-white/5 p-5 rounded-2xl mb-4 border border-white/10'
+                                }, 
+                                    React.createElement('span', { className: `text-2xl font-bold ${f.color}` }, f.text)
+                                )
+                            )
+                        ),
+
+                        scene.isPdf && React.createElement('div', { className: 'text-center' },
+                            React.createElement('div', { className: 'bg-white p-10 rounded-3xl mb-8 inline-block' }, '📄 PDF'),
+                            React.createElement('h2', { className: 'text-4xl font-bold text-white' }, 
+                                scene.title, React.createElement('br'), 
+                                React.createElement('span', { className: scene.subtitleColor }, scene.subtitle)
+                            )
+                        ),
+
+                        scene.isUsers && React.createElement('div', { className: 'text-center' },
+                            React.createElement('div', { className: 'flex justify-center -space-x-8 mb-8' },
+                                [1,2,3].map(i => React.createElement('div', { key: i, className: 'w-20 h-20 rounded-full bg-indigo-500 border-4 border-slate-900' }))
+                            ),
+                            React.createElement('h2', { className: 'text-4xl font-bold text-white' }, 
+                                scene.title, React.createElement('br'), 
+                                React.createElement('span', { className: scene.subtitleColor }, scene.subtitle)
+                            )
+                        ),
+
+                        scene.isFinal && React.createElement('div', { className: 'text-center' },
+                            React.createElement('h2', { className: 'text-6xl font-black text-white mb-10' }, 
+                                scene.title, React.createElement('br'), 
+                                React.createElement('span', { className: scene.subtitleColor }, scene.subtitle)
+                            ),
+                            React.createElement('button', { className: 'bg-emerald-500 text-white text-2xl px-12 py-6 rounded-2xl font-bold shadow-xl' }, 'راسلنا الآن')
+                        )
+                    )
+                )
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(App));
+    </script>
+</body>
+</html>
