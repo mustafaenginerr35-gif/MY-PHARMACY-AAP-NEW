@@ -771,9 +771,9 @@ export default function App() {
     try {
       const configRef = doc(db, 'system', 'config');
       
-      // Add a 5 second timeout to the fetch itself
+      // Add a 20 second timeout to the fetch itself
       const fetchPromise = getDoc(configRef);
-      const timeoutPromise = new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Remote config fetch timeout")), 5000));
+      const timeoutPromise = new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Remote config fetch timeout")), 20000));
       
       const snap = await Promise.race([fetchPromise, timeoutPromise]) as any;
       
@@ -1221,10 +1221,10 @@ export default function App() {
           }
         })();
 
-        // Race against 10 second timeout
+        // Race against 30 second timeout
         await Promise.race([
           connectivityPromise,
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Firebase connectivity check timed out")), 10000))
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Firebase connectivity check timed out")), 30000))
         ]);
 
       } catch (err: any) {
@@ -7128,7 +7128,6 @@ export default function App() {
           <RevenueForm 
             onSubmit={handleAddRevenue} 
             onClose={() => setIsAddRevenueOpen(false)} 
-            onImagesChange={setRevenueImageFiles}
           />
         </DialogContent>
       </Dialog>
@@ -7159,7 +7158,6 @@ export default function App() {
                 onSubmit={handleUpdateTransaction}
                 onDelete={() => handleDeleteTransaction(selectedTransaction)}
                 onClose={() => setIsEditTransactionOpen(false)}
-                onImagesChange={setRevenueImageFiles}
               />
             ) : (
               <ExpenseForm 
