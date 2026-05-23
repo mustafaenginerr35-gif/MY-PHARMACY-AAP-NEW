@@ -35,7 +35,7 @@ export interface CustomUser {
   planType: 'basic' | 'advanced' | 'lifetime';
   maxDevices: number;
   branchesCount: number;
-  role: 'admin' | 'user' | 'manager';
+  role: string;
 
   // One-time Licensing Parameters
   activatedAt?: string;
@@ -159,7 +159,7 @@ export const customAuthService = {
         planType,
         maxDevices,
         branchesCount,
-        role: 'manager', // Default registered scale is store manager
+        role: cleanEmail === (import.meta.env.VITE_SUPER_ADMIN_EMAIL || 'mustafaenginerr35@gmail.com').trim().toLowerCase() ? 'super_admin' : 'customer', // Auto-bootstrap super_admin role if matches custom email, otherwise register as customer
         activatedAt: '',
         customerName: fullName.trim(),
         customerPhone: cleanPhone,

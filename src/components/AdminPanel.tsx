@@ -52,7 +52,7 @@ interface SaaSUser {
   planType: 'basic' | 'advanced' | 'lifetime';
   maxDevices: number;
   branchesCount: number;
-  role: 'admin' | 'user' | 'manager';
+  role: string;
   passwordHash?: string;
 
   // One-time Licensing Parameters
@@ -592,7 +592,9 @@ export function AdminPanel() {
                             <span>الفروع المسموحة: <span className="font-bold text-foreground">{u.branchesCount || 1}</span></span>
                           </div>
                           <div className="text-[10px] text-muted-foreground">
-                            صلاحية الحساب: <span className="font-black text-foreground">{u.role === 'admin' ? 'مطور المسؤول العام' : u.role === 'manager' ? 'مدير الصيدلية' : 'مساعد كاشير'}</span>
+                            صلاحية الحساب: <span className="font-black text-foreground">
+                              {u.role === 'super_admin' ? 'المدير العام الرئيسي (Super Admin)' : u.role === 'admin' ? 'مطور المسؤول العام' : u.role === 'customer' ? 'العميل العادي (Customer)' : u.role === 'manager' ? 'مدير الصيدلية' : 'مساعد كاشير'}
+                            </span>
                           </div>
                         </td>
                         <td className="px-5 py-4 text-left">
@@ -844,12 +846,14 @@ export function AdminPanel() {
                   <label className="text-xs font-bold text-muted-foreground">صلاحيات الحساب</label>
                   <select 
                     value={selectedUser.role}
-                    onChange={e => setSelectedUser({ ...selectedUser, role: e.target.value as any })}
+                    onChange={e => setSelectedUser({ ...selectedUser, role: e.target.value })}
                     className="w-full h-10 px-3 bg-muted border border-border rounded-xl text-xs text-foreground focus:outline-none"
                   >
+                    <option value="customer">عميل عادي (Customer)</option>
                     <option value="manager">مدير صيدلية (Manager)</option>
                     <option value="user">صيدلي كاشير مساعد (User)</option>
                     <option value="admin">مسؤول معتمد للنظام بأكمله (Admin)</option>
+                    <option value="super_admin">مدير النظام السحابي الرئيسي (Super Admin)</option>
                   </select>
                 </div>
               </div>

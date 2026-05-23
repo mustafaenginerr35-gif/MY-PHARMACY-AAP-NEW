@@ -10,15 +10,15 @@ service cloud.firestore {
       
       // Control updates strictly to prevent unauthorized license/plan changes & email modification after activation
       allow update: if 
-        // Admin gets full update access
-        (request.auth != null && get(/databases/$(database)/documents/appUsers/$(request.auth.uid)).data.role == 'admin') ||
+        // Admin or Super Admin gets full update access
+        (request.auth != null && (get(/databases/$(database)/documents/appUsers/$(request.auth.uid)).data.role == 'admin' || get(/databases/$(database)/documents/appUsers/$(request.auth.uid)).data.role == 'super_admin')) ||
         
         // Owner authenticated update checks
         (request.auth != null && request.auth.uid == userId &&
           // 1. MUST NOT change email once activated / verified
           (resource.data.activationStatus != 'active' || request.resource.data.email == resource.data.email) &&
           // 2. MUST NOT raise/change role
-          (request.resource.data.role == resource.data.role || (resource.data.role == null && request.resource.data.role == 'manager')) &&
+          (request.resource.data.role == resource.data.role || (resource.data.role == null && (request.resource.data.role == 'manager' || request.resource.data.role == 'customer'))) &&
           // 3. For licensing parameters, standard users can only write them if they are redeeming a license
           // (i.e. changing activationStatus from not-active to active, or if those fields are unchanged)
           (
@@ -121,10 +121,10 @@ service cloud.firestore {
     match /activationCodes/{id} {
       // Allow read (get) for everyone so they can check the key's validity during setup/activation
       allow read: if true;
-      // Creation and deletion are only allowed for admin
-      allow create, delete: if request.auth != null && get(/databases/$(database)/documents/appUsers/$(request.auth.uid)).data.role == 'admin';
+      // Creation and deletion are only allowed for admin / super admin
+      allow create, delete: if request.auth != null && (get(/databases/$(database)/documents/appUsers/$(request.auth.uid)).data.role == 'admin' || get(/databases/$(database)/documents/appUsers/$(request.auth.uid)).data.role == 'super_admin');
       // Standard users can ONLY update 'isUsed' and 'assignedEmail' when activating a key, they cannot modify planType, maxDevices, etc.
-      allow update: if (request.auth != null && get(/databases/$(database)/documents/appUsers/$(request.auth.uid)).data.role == 'admin') || 
+      allow update: if (request.auth != null && (get(/databases/$(database)/documents/appUsers/$(request.auth.uid)).data.role == 'admin' || get(/databases/$(database)/documents/appUsers/$(request.auth.uid)).data.role == 'super_admin')) || 
                     (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isUsed', 'assignedEmail', 'updatedAt']) && 
                      resource.data.isUsed == false && 
                      request.resource.data.isUsed == true);

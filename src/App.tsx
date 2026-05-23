@@ -1115,11 +1115,30 @@ export default function App() {
               const userRef = doc(db, 'appUsers', customUser.userId);
               const userSnap = await getDoc(userRef);
               let latestUser = customUser;
+              
+              const superAdminEmail = (import.meta.env.VITE_SUPER_ADMIN_EMAIL || 'mustafaenginerr35@gmail.com').trim().toLowerCase();
+              
               if (userSnap.exists()) {
                 const liveData = userSnap.data();
                 latestUser = { ...customUser, ...liveData };
+                
+                // If live data does not have super_admin set yet but email is the super admin email, upgrade role
+                if (latestUser.email && latestUser.email.trim().toLowerCase() === superAdminEmail) {
+                  if (latestUser.role !== 'super_admin') {
+                    latestUser.role = 'super_admin';
+                    try {
+                      await updateDoc(userRef, { role: 'super_admin' });
+                    } catch (e) {
+                      console.warn("Could not write bootstrapped super_admin role to Firestore yet:", e);
+                    }
+                  }
+                }
+                
                 localStorage.setItem('pharma-auth-user', JSON.stringify(latestUser));
               }
+              
+              const isSuperAdminBoot = latestUser.email && latestUser.email.trim().toLowerCase() === superAdminEmail;
+
               const mappedUser: AppUser = {
                 userId: latestUser.userId,
                 id: latestUser.userId,
@@ -1130,7 +1149,7 @@ export default function App() {
                 isActive: latestUser.isActive !== false,
                 isSetupComplete: true,
                 createdAt: new Date(latestUser.createdAt || Date.now()),
-                role: latestUser.role || 'manager',
+                role: isSuperAdminBoot ? 'super_admin' : (latestUser.role || 'customer'),
                 licenseCode: latestUser.licenseCode,
                 activationStatus: latestUser.activationStatus,
                 planType: latestUser.planType || 'basic',
@@ -1145,6 +1164,10 @@ export default function App() {
               setAuthStep('authenticated');
             } catch (err) {
               console.error("Error syncing custom user session with Firestore during boot:", err);
+              
+              const superAdminEmail = (import.meta.env.VITE_SUPER_ADMIN_EMAIL || 'mustafaenginerr35@gmail.com').trim().toLowerCase();
+              const isSuperAdminBoot = customUser.email && customUser.email.trim().toLowerCase() === superAdminEmail;
+
               // Safe fallback for offline or network fluctuation
               const mappedUser: AppUser = {
                 userId: customUser.userId,
@@ -1156,7 +1179,7 @@ export default function App() {
                 isActive: customUser.isActive !== false,
                 isSetupComplete: true,
                 createdAt: new Date(customUser.createdAt || Date.now()),
-                role: customUser.role || 'manager',
+                role: isSuperAdminBoot ? 'super_admin' : (customUser.role || 'customer'),
                 licenseCode: customUser.licenseCode,
                 activationStatus: customUser.activationStatus,
                 planType: customUser.planType || 'basic',
@@ -1246,7 +1269,7 @@ export default function App() {
 
   const userPermissions = useMemo(() => {
     if (!appUser) return { canManageBranches: false, canViewReports: false, canEditTransactions: false };
-    const isAdmin = appUser.role === 'admin';
+    const isAdmin = appUser.role === 'admin' || appUser.role === 'super_admin';
     return {
       canManageBranches: isAdmin,
       canViewReports: true,
@@ -1346,8 +1369,8 @@ export default function App() {
     { id: 'reports', label: 'التقارير', icon: PieChart },
     { id: 'medicine-requests', label: 'طلبات الأدوية', icon: PackageSearch },
     { id: 'branches', label: 'إدارة الصيدليات', icon: Building2 },
-    // Inject custom admin panel if logged user is system admin
-    ...(appUser?.role === 'admin' ? [{ id: 'admin-panel', label: 'لوحة التحكم والمشرف', icon: ShieldAlert }] : []),
+    // Inject custom admin panel if logged user is system admin or super admin
+    ...(appUser?.role === 'admin' || appUser?.role === 'super_admin' ? [{ id: 'admin-panel', label: 'لوحة التحكم والمشرف', icon: ShieldAlert }] : []),
     { id: 'settings', label: 'الإعدادات', icon: Settings },
   ].filter(item => {
     if (item.id === 'branches') return userPermissions.canManageBranches;
@@ -4236,27 +4259,40 @@ export default function App() {
       const loginResult = await customAuthService.loginUser(authUsername, authPassword, fp);
       
       if (loginResult.success && loginResult.user) {
-        localStorage.setItem('pharma-auth-user', JSON.stringify(loginResult.user));
+        let loggedInUser = loginResult.user;
+        const superAdminEmail = (import.meta.env.VITE_SUPER_ADMIN_EMAIL || 'mustafaenginerr35@gmail.com').trim().toLowerCase();
+        const isSuperAdminLogin = loggedInUser.email && loggedInUser.email.trim().toLowerCase() === superAdminEmail;
+
+        if (isSuperAdminLogin && loggedInUser.role !== 'super_admin') {
+          loggedInUser = { ...loggedInUser, role: 'super_admin' };
+          try {
+            await updateDoc(doc(db, 'appUsers', loggedInUser.userId), { role: 'super_admin' });
+          } catch (e) {
+            console.warn("Could not write logged-in super_admin role to Firestore:", e);
+          }
+        }
+
+        localStorage.setItem('pharma-auth-user', JSON.stringify(loggedInUser));
         localStorage.setItem('pharma-is-authenticated', 'true');
         
         const mappedUser: AppUser = {
-          userId: loginResult.user.userId,
-          id: loginResult.user.userId,
-          email: loginResult.user.email,
-          username: loginResult.user.fullName,
-          displayName: loginResult.user.fullName,
-          phone: loginResult.user.phone,
+          userId: loggedInUser.userId,
+          id: loggedInUser.userId,
+          email: loggedInUser.email,
+          username: loggedInUser.fullName,
+          displayName: loggedInUser.fullName,
+          phone: loggedInUser.phone,
           isActive: true,
           isSetupComplete: true,
-          createdAt: new Date(loginResult.user.createdAt),
-          role: loginResult.user.role || 'manager',
-          licenseCode: loginResult.user.licenseCode,
-          activationStatus: loginResult.user.activationStatus,
-          planType: loginResult.user.planType || 'basic',
-          maxDevices: loginResult.user.maxDevices,
-          branchesCount: loginResult.user.branchesCount,
+          createdAt: new Date(loggedInUser.createdAt),
+          role: isSuperAdminLogin ? 'super_admin' : (loggedInUser.role || 'customer'),
+          licenseCode: loggedInUser.licenseCode,
+          activationStatus: loggedInUser.activationStatus,
+          planType: loggedInUser.planType || 'basic',
+          maxDevices: loggedInUser.maxDevices,
+          branchesCount: loggedInUser.branchesCount,
           isVerified: true,
-          lastLogin: loginResult.user.lastLogin
+          lastLogin: loggedInUser.lastLogin
         };
         setAppUser(mappedUser);
         setIsAppAuthenticated(true);
@@ -5140,8 +5176,8 @@ export default function App() {
     );
   }
 
-  // Gating licensed/activated states for non-admin users
-  if (appUser && appUser.role !== 'admin' && appUser.activationStatus !== 'active') {
+  // Gating licensed/activated states for non-admin/non-super_admin users
+  if (appUser && appUser.role !== 'admin' && appUser.role !== 'super_admin' && appUser.activationStatus !== 'active') {
     if (appUser.activationStatus === 'blocked') {
       return (
         <div className="h-screen w-full flex flex-col items-center justify-center p-6 bg-background text-foreground animate-fade-in" dir="rtl">
@@ -7274,7 +7310,7 @@ export default function App() {
             </TabsContent>
 
             <TabsContent value="admin-panel" className="animate-in fade-in slide-in-from-left-4 duration-500 pb-20 md:pb-0">
-               {appUser?.role === 'admin' ? <AdminPanel /> : <div className="py-24 text-center text-muted-foreground font-black">عذراً، هذه الصفحة حصرية لمدير النظام الرئيسي.</div>}
+               {appUser?.role === 'admin' || appUser?.role === 'super_admin' ? <AdminPanel /> : <div className="py-24 text-center text-muted-foreground font-black">عذراً، هذه الصفحة حصرية لمدير النظام الرئيسي.</div>}
             </TabsContent>
 
             <TabsContent value="settings" className="space-y-8 animate-in fade-in duration-500 pb-20 md:pb-0">
@@ -7455,7 +7491,7 @@ export default function App() {
                         <div className="p-3 bg-muted/45 border border-border/55 rounded-xl space-y-1">
                           <span className="text-[10px] text-muted-foreground font-semibold block">ملاك الحساب</span>
                           <span className="text-xs font-black text-foreground block">
-                            {appUser?.role === 'manager' ? 'مدير الصيدلية' : appUser?.role === 'admin' ? 'المدير العام (Admin)' : 'حساب مستخدم'}
+                            {appUser?.role === 'super_admin' ? 'المدير العام الرئيسي (Super Admin)' : appUser?.role === 'admin' ? 'المدير العام (Admin)' : appUser?.role === 'customer' ? 'العميل العادي (Customer)' : appUser?.role === 'manager' ? 'مدير الصيدلية' : 'حساب مستخدم'}
                           </span>
                         </div>
                       </div>
