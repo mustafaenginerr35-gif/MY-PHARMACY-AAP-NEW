@@ -8,6 +8,8 @@ import {
   User,
   Phone,
   CalendarDays,
+  Upload,
+  Image as ImageIcon,
   Trash2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -22,16 +24,23 @@ interface RevenueFormProps {
   onSubmit: (data: any) => void;
   onClose: () => void;
   onDelete?: () => void;
+  onImagesChange: (files: File[]) => void;
   initialData?: any;
 }
 
-export const RevenueForm = ({ onSubmit, onClose, onDelete, initialData }: RevenueFormProps) => {
+export const RevenueForm = ({ onSubmit, onClose, onDelete, onImagesChange, initialData }: RevenueFormProps) => {
   const [revenueClassification, setRevenueClassification] = useState<'operating' | 'non-operating' | 'receive_loan'>(initialData?.revenueClassification || 'operating');
   const [nonOperatingType, setNonOperatingType] = useState<string>(initialData?.nonOperatingType || '');
   const [loanInStatus, setLoanInStatus] = useState<string>(initialData?.loanInStatus || 'open');
   const [incomeType, setIncomeType] = useState<'cash' | 'credit'>(initialData?.incomeType || 'cash');
   const [saleAmount, setSaleAmount] = useState<string>(initialData?.saleAmount ? formatNumberWithCommas(initialData.saleAmount) : '');
   const [profitPercent, setProfitPercent] = useState<string>(initialData?.profitPercent?.toString() || '15');
+  const [images, setImages] = useState<{file?: File, preview: string}[]>(
+    Array.isArray(initialData?.imageUrls) 
+      ? initialData.imageUrls.map((url: string) => ({ preview: url })) 
+      : (initialData?.imageUrl ? [{ preview: initialData.imageUrl }] : [])
+  );
+
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -133,6 +142,26 @@ export const RevenueForm = ({ onSubmit, onClose, onDelete, initialData }: Revenu
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleImagesSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    
+    const newImages = files.map(file => ({
+      file,
+      preview: URL.createObjectURL(file as any)
+    }));
+    
+    const updatedImages = [...images, ...newImages];
+    setImages(updatedImages);
+    onImagesChange(updatedImages.filter(img => img.file).map(img => img.file!));
+  };
+
+  const removeImage = (index: number) => {
+    const updatedImages = images.filter((_, i) => i !== index);
+    setImages(updatedImages);
+    onImagesChange(updatedImages.filter(img => img.file).map(img => img.file!));
   };
 
   return (
@@ -490,6 +519,38 @@ export const RevenueForm = ({ onSubmit, onClose, onDelete, initialData }: Revenu
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Attachment Section */}
+        <div className="space-y-4 p-5 bg-card/10 border border-border rounded-3xl">
+          <Label className="text-muted-foreground font-black text-xs uppercase tracking-widest block">المرفقات والصور</Label>
+          
+          <div className="flex flex-wrap gap-4">
+            {images.map((img, index) => (
+              <div key={index} className="relative w-24 h-24 rounded-2xl border-2 border-border overflow-hidden group shadow-lg">
+                <img src={img.preview} alt="Attachment" className="w-full h-full object-cover transition-transform group-hover:scale-110" />
+                <button
+                  type="button"
+                  onClick={() => removeImage(index)}
+                  className="absolute top-1 right-1 bg-rose-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <TrendingUp className="h-3 w-3 rotate-45" />
+                </button>
+              </div>
+            ))}
+            
+            <label className="w-24 h-24 rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center cursor-pointer hover:bg-muted/50 hover:border-primary/50 transition-all gap-1 group">
+              <Upload className="h-6 w-6 text-muted-foreground group-hover:text-primary group-hover:scale-110 transition-all" />
+              <span className="text-[10px] font-black text-muted-foreground uppercase">إضافة</span>
+              <input 
+                type="file" 
+                multiple 
+                accept="image/*" 
+                className="hidden" 
+                onChange={handleImagesSelect}
+              />
+            </label>
+          </div>
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-4 pt-6 border-t border-border">
