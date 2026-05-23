@@ -73,13 +73,21 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 }
 
 export function getEffectiveUserInfo() {
+  // Check for our custom user from CustomAuthService first
+  const customUserString = localStorage.getItem('pharma-auth-user');
+  if (customUserString) {
+    try {
+      const customUser = JSON.parse(customUserString);
+      if (customUser && customUser.userId) {
+        return { uid: customUser.userId, authenticated: true };
+      }
+    } catch (e) {
+      console.error('Error parsing custom user session from localStorage', e);
+    }
+  }
+
   const user = auth.currentUser;
   if (user) return { uid: user.uid, authenticated: true };
-  
-  const isLocallyAuth = localStorage.getItem('pharma-is-authenticated') === 'true';
-  if (isLocallyAuth) {
-    return { uid: 'demo-user', authenticated: true };
-  }
   
   return { uid: null, authenticated: false };
 }
@@ -459,8 +467,13 @@ export const firebaseService = {
   async testFirebaseConnection() {
     try {
       const testRef = doc(db, "system", "config");
-      const snap = await getDoc(testRef);
-      console.log("Firebase test success:", snap.exists());
+      
+      // Add timeout to the connection test as well
+      const fetchPromise = getDoc(testRef);
+      const timeoutPromise = new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Test connection timeout")), 15000));
+      
+      const snap = await Promise.race([fetchPromise, timeoutPromise]) as any;
+      console.log("Firebase test success:", snap && snap.exists());
       return true;
     } catch (error) {
       console.error("Firebase test failed:", error);

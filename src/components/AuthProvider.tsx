@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { googleDriveService } from '@/src/services/googleDriveService';
+import { googleDriveService } from '../services/googleDriveService';
 import { toast } from 'sonner';
 
 interface GoogleUser {
@@ -21,62 +21,89 @@ const GoogleAuthContext = createContext<GoogleAuthContextType | undefined>(undef
 
 export function GoogleAuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<GoogleUser | null>(null);
+  const [isLinked, setIsLinked] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const fetchGoogleUserInfo = async (token: string) => {
-    try {
-      const userInfo = await googleDriveService.fetchUserInfo();
-      setUser({
-        uid: userInfo.sub,
-        email: userInfo.email,
-        displayName: userInfo.name,
-        photoURL: userInfo.picture
-      });
-    } catch (error) {
-      console.error('Failed to fetch Google user info:', error);
-      googleDriveService.logout();
-      setUser(null);
-    }
-  };
-
   useEffect(() => {
+    const handleOAuthMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      
+      if (event.data?.type === 'GOOGLE_OAUTH_TOKEN' && event.data.token) {
+        console.log('Received OAuth token from popup');
+        setUser({
+          uid: 'google-drive-user',
+          email: 'Google Drive',
+          displayName: 'حساب مرتبط',
+        });
+        setIsLinked(true);
+        setLoading(false);
+        toast.success("تم ربط حساب Google Drive بنجاح");
+      }
+    };
+
+    window.addEventListener('message', handleOAuthMessage);
+
     const initGoogleAuth = async () => {
-      console.log('Initializing Google Auth for Drive...');
-      // Check for token in URL hash (redirect callback)
+      console.log('Initializing Google Auth check...');
+      // Check for token in URL hash (in case redirect flow was used)
       const redirectToken = googleDriveService.handleRedirectCallback();
       
       const token = redirectToken || googleDriveService.getAccessToken();
       if (token) {
-        await fetchGoogleUserInfo(token);
-        if (redirectToken) {
-          toast.success("تم ربط حساب Google Drive بنجاح");
+        // Validate the token actually works
+        const isValid = await googleDriveService.validateToken();
+        
+        if (isValid) {
+          setUser({
+            uid: 'google-drive-user',
+            email: 'Google Drive',
+            displayName: 'حساب مرتبط',
+          });
+          setIsLinked(true);
+          if (redirectToken && !window.opener) {
+            toast.success("تم ربط حساب Google Drive بنجاح");
+          }
+        } else {
+          setIsLinked(false);
+          setUser(null);
         }
+      } else {
+        setIsLinked(false);
+        setUser(null);
       }
       setLoading(false);
     };
     initGoogleAuth();
+
+    return () => window.removeEventListener('message', handleOAuthMessage);
   }, []);
 
   const linkDrive = async () => {
-    console.log('Link Drive clicked, initiating redirect...');
+    console.log('Link Drive clicked, clearing old state and initiating popup...');
     try {
-      await googleDriveService.initiateRedirectAuth();
+      // Clear old state before starting fresh link
+      googleDriveService.logout();
+      setUser(null);
+      setIsLinked(false);
+      
+      await googleDriveService.initiatePopupAuth();
     } catch (error: any) {
       console.error('Link Drive error:', error);
-      toast.error(`فشل ربط Google Drive: ${error.message || 'خطأ غير معروف'}`);
+      toast.error("حدث خطأ أثناء محاولة فتح نافذة تسجيل الدخول");
     }
   };
 
   const unlinkDrive = async () => {
     googleDriveService.logout();
     setUser(null);
+    setIsLinked(false);
     toast.success("تم فصل حساب Google Drive");
   };
 
   return (
     <GoogleAuthContext.Provider value={{ 
       user, 
-      isDriveLinked: !!user, 
+      isDriveLinked: isLinked, 
       loading, 
       linkDrive, 
       unlinkDrive 

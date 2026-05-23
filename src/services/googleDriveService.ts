@@ -35,6 +35,10 @@ class GoogleDriveService {
   private accessToken: string | null = localStorage.getItem('google_drive_access_token');
   private clientId: string = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
+  isConfigured() {
+    return !!this.clientId;
+  }
+
   setAccessToken(token: string) {
     this.accessToken = token;
     localStorage.setItem('google_drive_access_token', token);
@@ -49,37 +53,65 @@ class GoogleDriveService {
     localStorage.removeItem('google_drive_access_token');
   }
 
-  async initiateRedirectAuth() {
-    console.log('Initiating Google OAuth redirect...');
+  async initiatePopupAuth() {
+    console.log('Initiating Google OAuth popup...');
     if (!this.clientId) {
       console.error('Google Client ID is missing!');
-      toast.error('Google Client ID is not configured.');
+      toast.error('Google Client ID is missing. Please configure VITE_GOOGLE_CLIENT_ID in your settings.');
       return;
     }
 
-    // Use origin with trailing slash to match Google Console requirements
-    const redirectUri = window.location.origin + '/';
-    console.log('OAuth Redirect URI:', redirectUri);
-    // Use ONLY appDataFolder scope for backup/sync
-    const scope = 'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email';
-    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${this.clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(scope)}&include_granted_scopes=true&prompt=consent`;
+    const appUrl = import.meta.env.VITE_APP_URL || window.location.origin;
+    const redirectUri = appUrl.endsWith('/') ? appUrl : `${appUrl}/`;
     
-    console.log('Redirecting to:', authUrl);
-    window.location.href = authUrl;
+    console.log('OAuth Redirect URI:', redirectUri);
+    // Strictly limited scope for app-specific data only
+    const scopes = [
+      'https://www.googleapis.com/auth/drive.appdata'
+    ].join(' ');
+
+    // response_type=token for implicit flow (no refresh token without secret)
+    // prompt=select_account forces account selection
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${this.clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(scopes)}&include_granted_scopes=true&prompt=select_account%20consent`;
+    
+    console.log('Opening Google OAuth popup...');
+    const width = 500;
+    const height = 650;
+    const left = window.screen.width / 2 - width / 2;
+    const top = window.screen.height / 2 - height / 2;
+    
+    const popup = window.open(
+      authUrl, 
+      'google-oauth', 
+      `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,location=no,status=no`
+    );
+
+    if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+      toast.error('تم حظر النافذة المنبثقة. يرجى السماح بالنوافذ المنبثقة للمتصفح لتتمكن من ربط الحساب.');
+    }
   }
 
   handleRedirectCallback(): string | null {
     const hash = window.location.hash;
     if (!hash) return null;
 
-    console.log('Detected hash in URL, checking for OAuth token...');
     const params = new URLSearchParams(hash.substring(1));
     const token = params.get('access_token');
     const error = params.get('error');
 
     if (token) {
-      console.log('OAuth token successfully extracted from URL hash');
       this.setAccessToken(token);
+      
+      // If we are in a popup, notify the opener and close
+      if (window.opener) {
+        try {
+          window.opener.postMessage({ type: 'GOOGLE_OAUTH_TOKEN', token }, window.location.origin);
+          window.close();
+        } catch (e) {
+          console.error('Failed to notify opener:', e);
+        }
+      }
+
       // Clean up the URL hash without reloading
       window.history.replaceState(null, '', window.location.pathname + window.location.search);
       return token;
@@ -88,31 +120,52 @@ class GoogleDriveService {
     if (error) {
       console.error('OAuth error detected in URL hash:', error);
       toast.error(`فشل تسجيل الدخول: ${error}`);
+      
+      if (window.opener) {
+        window.close();
+      }
+      
       window.history.replaceState(null, '', window.location.pathname + window.location.search);
     }
     
     return null;
   }
 
+  async validateToken(): Promise<boolean> {
+    if (!this.accessToken) return false;
+
+    try {
+      // Try a simple list request to the appDataFolder to verify token
+      const response = await fetch(
+        `https://www.googleapis.com/drive/v3/files?pageSize=1&spaces=appDataFolder`,
+        {
+          headers: { Authorization: `Bearer ${this.accessToken}` }
+        }
+      );
+
+      if (response.status === 401) {
+        console.warn('Token expired or invalid, logging out...');
+        this.logout();
+        return false;
+      }
+
+      return response.ok;
+    } catch (error) {
+      console.error('Token validation error:', error);
+      return false;
+    }
+  }
+
   async authenticate(): Promise<string> {
-    // This method is now deprecated in favor of redirect auth
+    // This method is now deprecated in favor of popup auth
     // but kept for compatibility if needed elsewhere.
-    // For now, let's just use initiateRedirectAuth.
-    this.initiateRedirectAuth();
-    return new Promise(() => {}); // Never resolves as page redirects
+    this.initiatePopupAuth();
+    return new Promise(() => {}); // Never resolves as page may reload or popup open
   }
 
   async fetchUserInfo(): Promise<any> {
-    if (!this.accessToken) throw new Error('Not authenticated');
-
-    const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-      headers: {
-        Authorization: `Bearer ${this.accessToken}`,
-      },
-    });
-
-    if (!response.ok) throw new Error('Failed to fetch user info');
-    return await response.json();
+    // User info is unavailable with limited appdata scope (privacy-friendly)
+    return null;
   }
 
   async uploadBackup(data: any): Promise<void> {

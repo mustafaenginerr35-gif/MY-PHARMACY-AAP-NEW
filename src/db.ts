@@ -152,10 +152,13 @@ export interface Notification {
 
 export interface AppUser {
   userId: string;
+  id?: string;
   email: string;
   username: string;
   displayName: string;
+  phone?: string;
   password?: string;
+  passwordHash?: string;
   securityQuestion?: string;
   securityAnswer?: string;
   role?: string;
@@ -163,6 +166,20 @@ export interface AppUser {
   updatedAt?: Date;
   isActive: boolean;
   isSetupComplete: boolean;
+
+  // One-time Licensing Context
+  licenseCode?: string;
+  activationStatus?: 'active' | 'blocked' | 'expired';
+  planType?: 'basic' | 'advanced' | 'lifetime';
+  maxDevices?: number;
+  branchesCount?: number;
+  isVerified?: boolean;
+  lastLogin?: string;
+  activatedAt?: string;
+  customerName?: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  pharmacyName?: string;
 }
 
 export interface SystemLog {
@@ -237,6 +254,10 @@ export interface ActivationCode {
   isUsed: boolean;
   createdAt: Date;
   updatedAt?: Date;
+  planType?: 'basic' | 'advanced' | 'lifetime';
+  maxDevices?: number;
+  branchesCount?: number;
+  activationStatus?: 'active' | 'blocked' | 'expired';
 }
 
 export interface ActivationRequest {

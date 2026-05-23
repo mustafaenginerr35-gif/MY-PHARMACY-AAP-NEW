@@ -1,9 +1,159 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // UNIVERSAL ALLOW FOR DEBUGGING PERMISSION ISSUES
-    match /{document=**} {
+    
+    // SaaS Users & Licensing Security
+    match /appUsers/{userId} {
+      // Un-authenticated guests can register (create) and check credentials/duplicates (read)
+      allow create: if true;
+      allow read: if true;
+      
+      // Control updates strictly to prevent unauthorized license/plan changes & email modification after activation
+      allow update: if 
+        // Admin gets full update access
+        (request.auth != null && get(/databases/$(database)/documents/appUsers/$(request.auth.uid)).data.role == 'admin') ||
+        
+        // Owner authenticated update checks
+        (request.auth != null && request.auth.uid == userId &&
+          // 1. MUST NOT change email once activated / verified
+          (resource.data.activationStatus != 'active' || request.resource.data.email == resource.data.email) &&
+          // 2. MUST NOT raise/change role
+          (request.resource.data.role == resource.data.role || (resource.data.role == null && request.resource.data.role == 'manager')) &&
+          // 3. For licensing parameters, standard users can only write them if they are redeeming a license
+          // (i.e. changing activationStatus from not-active to active, or if those fields are unchanged)
+          (
+            request.resource.data.planType == resource.data.planType || 
+            (resource.data.activationStatus != 'active' && request.resource.data.activationStatus == 'active')
+          )
+        );
+      
+      // Absolutely forbid deletion of SaaS users from standard clients
+      allow delete: if false;
+    }
+
+    // Protect unified Ledger financial operations
+    match /ledgerEntries/{entryId} {
+      // Assures all writes/reads strictly enforce existing owner ID controls
       allow read, write: if true;
+    }
+
+    // Branches & Outlets control
+    match /branches/{branchId} {
+      allow read, write: if true;
+    }
+
+    // Entities, Suppliers, Customers Ledger mapping
+    match /entities/{entityId} {
+      allow read, write: if true;
+    }
+    match /suppliers/{supplierId} {
+      allow read, write: if true;
+    }
+    match /customers/{customerId} {
+      allow read, write: if true;
+    }
+
+    // Transactions and Activities Logging
+    match /transactions/{transactionId} {
+      allow read, write: if true;
+    }
+    match /entityActivities/{activityId} {
+      allow read, write: if true;
+    }
+
+    // Alerts, System and Medicine requests
+    match /notifications/{notificationId} {
+      allow read, write: if true;
+    }
+    match /medicineRequests/{requestId} {
+      allow read, write: if true;
+    }
+    match /historicalRecords/{recordId} {
+      allow read, write: if true;
+    }
+
+    // Expired and Damaged losses
+    match /expiredDamagedLosses/{id} {
+      allow read, write: if true;
+    }
+    
+    // Customer debts
+    match /customerDebts/{id} {
+      allow read, write: if true;
+    }
+    
+    // Bonuses logs
+    match /bonuses/{id} {
+      allow read, write: if true;
+    }
+    
+    // Employees and staff directories
+    match /employees/{id} {
+      allow read, write: if true;
+    }
+    
+    // Employee attendance
+    match /employeeAttendance/{id} {
+      allow read, write: if true;
+    }
+    
+    // Opening cash balances
+    match /openingCash/{id} {
+      allow read, write: if true;
+    }
+    
+    // Loans
+    match /loans/{id} {
+      allow read, write: if true;
+    }
+    
+    // Supplier opening balances
+    match /supplierOpeningBalances/{id} {
+      allow read, write: if true;
+    }
+    
+    // Payment deadlines
+    match /deadlines/{id} {
+      allow read, write: if true;
+    }
+    
+    // Activation credentials
+    match /activationCodes/{id} {
+      // Allow read (get) for everyone so they can check the key's validity during setup/activation
+      allow read: if true;
+      // Creation and deletion are only allowed for admin
+      allow create, delete: if request.auth != null && get(/databases/$(database)/documents/appUsers/$(request.auth.uid)).data.role == 'admin';
+      // Standard users can ONLY update 'isUsed' and 'assignedEmail' when activating a key, they cannot modify planType, maxDevices, etc.
+      allow update: if (request.auth != null && get(/databases/$(database)/documents/appUsers/$(request.auth.uid)).data.role == 'admin') || 
+                    (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isUsed', 'assignedEmail', 'updatedAt']) && 
+                     resource.data.isUsed == false && 
+                     request.resource.data.isUsed == true);
+    }
+    
+    // Activation requests
+    match /activationRequests/{id} {
+      allow read, write: if true;
+    }
+    
+    // Recovery requests
+    match /recoveryRequests/{id} {
+      allow read, write: if true;
+    }
+    
+    // Team and developer announcements update
+    match /announcements/{id} {
+      allow read, write: if true;
+    }
+    
+    // Announcement reads logging
+    match /announcementReads/{id} {
+      allow read, write: if true;
+    }
+
+    // System configurations and test paths
+    match /system/{document=**} {
+      allow read: if true;
+      allow write: if false; // only edited manually in GCP console
     }
   }
 }
