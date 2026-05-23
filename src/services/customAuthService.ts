@@ -172,7 +172,7 @@ export const customAuthService = {
       // Send verification code
       const sent = await emailjsService.sendOTP(cleanEmail, pendingUser.fullName, otp, 'register');
       if (!sent) {
-        console.warn('EmailJS delivery had issues, user saved temporarily.');
+        throw new Error('فشل إرسال رمز التحقق (OTP) للبريد الإلكتروني. الرجاء التأكد من صحة البريد أو إعداد الخدمة بشكل صحيح.');
       }
 
       return { success: true, userId: newUserId };

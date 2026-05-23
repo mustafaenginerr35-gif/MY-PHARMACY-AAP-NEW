@@ -1497,12 +1497,26 @@ export default function App() {
   const [authOTP, setAuthOTP] = useState('');
   const [authPlanType, setAuthPlanType] = useState<'basic' | 'advanced' | 'lifetime'>('basic');
   const [otpRemainingSeconds, setOtpRemainingSeconds] = useState(0);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const [otpExpired, setOtpExpired] = useState(false);
   const [authResetNewPassword, setAuthResetNewPassword] = useState('');
   const [authResetConfirmPassword, setAuthResetConfirmPassword] = useState('');
   const [customAuthLoading, setCustomAuthLoading] = useState(false);
 
   const [authStep, setAuthStep] = useState<'register' | 'verify-signup' | 'login-password' | 'forgot-password' | 'verify-reset' | 'authenticated'>('login-password');
+
+  // Resend OTP Cooldown ticking effect
+  useEffect(() => {
+    let timerId: any = null;
+    if (resendCooldown > 0) {
+      timerId = setInterval(() => {
+        setResendCooldown(prev => (prev <= 1 ? 0 : prev - 1));
+      }, 1000);
+    }
+    return () => {
+      if (timerId) clearInterval(timerId);
+    };
+  }, [resendCooldown]);
 
   // Custom OTP Countdown ticking effect
   useEffect(() => {
@@ -4102,6 +4116,7 @@ export default function App() {
 
       if (result.success) {
         setOtpRemainingSeconds(600); // 10 minutes count
+        setResendCooldown(60); // 60 seconds resend cooldown
         setOtpExpired(false);
         setAuthOTP('');
         setAuthStep('verify-signup');
@@ -4179,6 +4194,7 @@ export default function App() {
       const sent = await customAuthService.resendOTP(authUsername, 'register');
       if (sent) {
         setOtpRemainingSeconds(600);
+        setResendCooldown(60); // 60 seconds resend cooldown
         setOtpExpired(false);
         toast.success('تمت إعادة إرسال رمز تحقق جديد إلى بريدك الإلكتروني.');
       }
@@ -4303,6 +4319,7 @@ export default function App() {
         toast.info('حسابك غير مفعّل بعد. جاري إرسال كود تفعيلي جديد على بريدك الإلكتروني الآن...');
         const sent = await customAuthService.resendOTP(authUsername, 'register');
         setOtpRemainingSeconds(600);
+        setResendCooldown(60); // 60 seconds resend cooldown
         setOtpExpired(false);
         setAuthStep('verify-signup');
       } else {
@@ -4327,6 +4344,7 @@ export default function App() {
       const result = await customAuthService.requestPasswordResetOTP(authUsername);
       if (result.success) {
         setOtpRemainingSeconds(600);
+        setResendCooldown(60); // 60 seconds resend cooldown
         setOtpExpired(false);
         setAuthOTP('');
         setAuthResetNewPassword('');
@@ -4386,6 +4404,7 @@ export default function App() {
       const sent = await customAuthService.resendOTP(authUsername, 'reset');
       if (sent) {
         setOtpRemainingSeconds(600);
+        setResendCooldown(60); // 60 seconds resend cooldown
         setOtpExpired(false);
         toast.success('تمت إعادة إرسال رمز تحقق إعادة التعيين.');
       }
@@ -4920,9 +4939,9 @@ export default function App() {
                     type="button" 
                     onClick={handleVerifyResendSignUp}
                     className="text-primary hover:text-primary font-bold disabled:text-muted-foreground transition-all"
-                    disabled={customAuthLoading}
+                    disabled={customAuthLoading || resendCooldown > 0}
                   >
-                    إعادة إرسال الرمز مجدداً
+                    {resendCooldown > 0 ? `إعادة إرسال الرمز خلال (${resendCooldown} ث)` : 'إعادة إرسال الرمز مجدداً'}
                   </button>
                   <button 
                     type="button" 
@@ -5154,9 +5173,9 @@ export default function App() {
                   type="button" 
                   onClick={handleVerifyResendReset}
                   className="text-primary hover:text-primary font-bold transition-all"
-                  disabled={customAuthLoading}
+                  disabled={customAuthLoading || resendCooldown > 0}
                 >
-                  إعادة إرسال رمز OTP
+                  {resendCooldown > 0 ? `إعادة إرسال الرمز خلال (${resendCooldown} ث)` : 'إعادة إرسال رمز OTP'}
                 </button>
                 <button 
                   type="button" 
