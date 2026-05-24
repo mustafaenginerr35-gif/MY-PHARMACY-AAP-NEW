@@ -20,16 +20,27 @@ export const emailjsService = {
         }),
       });
 
-      const data = await res.json();
+      let data: any = null;
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        data = await res.json();
+      } else {
+        const textResponse = await res.text();
+        console.error("[emailjsService] Non-JSON error response from backend:", textResponse);
+        toast.error(`استجابة غير متوقعة من الخادم: ${textResponse.substring(0, 200) || `رمز الحالة: ${res.status}`}`, {
+          duration: 12000,
+        });
+        return false;
+      }
       
-      if (res.ok && data.success) {
+      if (res.ok && data && data.success) {
         toast.success('تم إرسال رمز التحقق إلى بريدك الإلكتروني بنجاح.');
         return true;
       } else {
-        const errorMsg = data.error || `خطأ غير معروف برمز الحالة ${res.status}`;
+        const errorMsg = data?.error || `خطأ برمز الحالة ${res.status}`;
         console.error("[emailjsService] OTP Sending Failed:", errorMsg);
         toast.error(`فشل إرسال رمز التحقق: ${errorMsg}`, {
-          duration: 10000,
+          duration: 12000,
         });
         return false;
       }
