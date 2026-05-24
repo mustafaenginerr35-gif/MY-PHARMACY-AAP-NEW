@@ -12,8 +12,17 @@ async function startServer() {
   app.use(express.json());
 
   // API Routes
+  app.all("/api/send-otp", async (req, res, next) => {
+    console.log(`[EmailOTPProxy] Incoming request: ${req.method} ${req.url}`);
+    if (req.method !== "POST") {
+      console.warn(`[EmailOTPProxy] Method ${req.method} is Not Allowed for /api/send-otp`);
+      return res.status(405).json({ success: false, error: `Method ${req.method} Not Allowed. Please use POST.` });
+    }
+    next();
+  });
+
   app.post("/api/send-otp", async (req, res) => {
-    const { email, fullName, otp, purpose } = req.body;
+    const { email, fullName, otp, purpose } = req.body || {};
     
     if (!email || !fullName || !otp) {
       return res.status(400).json({ success: false, error: "Missing required parameters." });
