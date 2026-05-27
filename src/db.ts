@@ -169,7 +169,7 @@ export interface AppUser {
 
   // One-time Licensing Context
   licenseCode?: string;
-  activationStatus?: 'active' | 'blocked' | 'expired';
+  activationStatus?: 'active' | 'blocked' | 'expired' | 'suspended' | 'revoked' | 'unlicensed' | 'used_by_other' | 'blocked_device';
   planType?: 'basic' | 'advanced' | 'lifetime';
   maxDevices?: number;
   branchesCount?: number;

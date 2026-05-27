@@ -114,9 +114,35 @@ function cleanData(data: any): any {
 const activeOperations = new Set<string>();
 const globalSavingLock = new Map<string, number>();
 
+function checkIsReadOnlyBlocked(collectionName?: string) {
+  if (['appUsers', 'licenses', 'notifications', 'announcementReads', 'admins', 'sales'].includes(collectionName || '')) {
+    return;
+  }
+  const customUserString = localStorage.getItem('pharma-auth-user');
+  if (customUserString) {
+    try {
+      const customUser = JSON.parse(customUserString);
+      if (customUser && customUser.role !== 'admin' && customUser.role !== 'super_admin') {
+        if (customUser.activationStatus === 'expired') {
+          const isReadOnlyActive = localStorage.getItem('pharma-read-only-expired-override') === 'true';
+          if (isReadOnlyActive) {
+            throw new Error('READ_ONLY_MODE_BLOCKED');
+          }
+        }
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message === 'READ_ONLY_MODE_BLOCKED') {
+        throw e;
+      }
+      console.error(e);
+    }
+  }
+}
+
 export const firebaseService = {
   // Centralized Financial Save Operation
   async saveFinancialRecordOnce(data: any) {
+    checkIsReadOnlyBlocked('ledgerEntries');
     const { uid, authenticated } = getEffectiveUserInfo();
     if (!authenticated) throw new Error('يرجى تسجيل الدخول أولاً');
 
@@ -198,6 +224,7 @@ export const firebaseService = {
 
   // Generic collection operations
   async addDocument(collectionName: string, data: any) {
+    checkIsReadOnlyBlocked(collectionName);
     const { uid, authenticated } = getEffectiveUserInfo();
     if (!authenticated) throw new Error('يرجى تسجيل الدخول أولاً');
     
@@ -223,6 +250,7 @@ export const firebaseService = {
   },
 
   async updateDocument(collectionName: string, id: string, data: any) {
+    checkIsReadOnlyBlocked(collectionName);
     const { authenticated } = getEffectiveUserInfo();
     if (!authenticated) throw new Error('يرجى تسجيل الدخول أولاً');
 
@@ -240,6 +268,7 @@ export const firebaseService = {
   },
 
   async deleteDocument(collectionName: string, id: string) {
+    checkIsReadOnlyBlocked(collectionName);
     const { authenticated, uid } = getEffectiveUserInfo();
     if (!authenticated) throw new Error('يرجى تسجيل الدخول أولاً');
 
@@ -338,6 +367,7 @@ export const firebaseService = {
   },
 
   async setDocument(collectionName: string, id: string, data: any, options: { merge?: boolean } = {}) {
+    checkIsReadOnlyBlocked(collectionName);
     const { authenticated } = getEffectiveUserInfo();
     if (!authenticated) throw new Error('يرجى تسجيل الدخول أولاً');
 

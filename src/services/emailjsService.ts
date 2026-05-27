@@ -14,7 +14,9 @@ export const emailjsService = {
         },
         body: JSON.stringify({
           email,
+          to_email: email,
           fullName,
+          username: fullName,
           otp,
           purpose,
         }),

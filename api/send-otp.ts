@@ -15,14 +15,22 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  const { email, fullName, otp, purpose } = req.body || {};
-  console.log(`[api/send-otp] Body parsed:`, { email, fullName, otp: otp ? "***" : undefined, purpose });
+  const { email, to_email, fullName, username, to_name, otp, purpose } = req.body || {};
+  const resolvedEmail = (email || to_email || "").trim();
+  const resolvedFullName = (fullName || username || to_name || "").trim();
 
-  if (!email || !fullName || !otp) {
-    console.error(`[api/send-otp] Missing parameters in body:`, { email: !email, fullName: !fullName, otp: !otp });
+  console.log(`[api/send-otp] Body parsed and resolved:`, { 
+    resolvedEmail, 
+    resolvedFullName, 
+    otp: otp ? "***" : undefined, 
+    purpose 
+  });
+
+  if (!resolvedEmail || !resolvedFullName || !otp) {
+    console.error(`[api/send-otp] Missing parameters in body:`, { email: !resolvedEmail, fullName: !resolvedFullName, otp: !otp });
     return res.status(400).json({
       success: false,
-      error: `بيانات ناقصة: ${[!email && "البريد الالكتروني", !fullName && "الاسم الكامل", !otp && "كود OTP"].filter(Boolean).join(", ")}`,
+      error: `بيانات ناقصة: ${[!resolvedEmail && "البريد الالكتروني", !resolvedFullName && "الاسم الكامل", !otp && "كود OTP"].filter(Boolean).join(", ")}`,
     });
   }
 
@@ -54,12 +62,12 @@ export default async function handler(req: any, res: any) {
   }
 
   const arabicPurpose = purpose === "reset" ? "إعادة تعيين كلمة مرورك" : "تفعيل حسابك الجديد";
-  const message = `مرحباً ${fullName}، رمز التحقق الخاص بك لـ ${arabicPurpose} في صيدليتي هو: ${otp}. هذا الرمز صالح لمدة 10 دقائق فقط.`;
+  const message = `مرحباً ${resolvedFullName}، رمز التحقق الخاص بك لـ ${arabicPurpose} في صيدليتي هو: ${otp}. هذا الرمز صالح لمدة 10 دقائق فقط.`;
 
   try {
     const templateParams = {
-      to_email: email,
-      to_name: fullName,
+      to_email: resolvedEmail,
+      to_name: resolvedFullName,
       otp_code: otp,
       purpose_text: arabicPurpose,
       message: message,
@@ -76,7 +84,7 @@ export default async function handler(req: any, res: any) {
       payload.accessToken = privateKey;
     }
 
-    console.log(`[api/send-otp] Dispatching request to EmailJS for: ${email}...`);
+    console.log(`[api/send-otp] Dispatching request to EmailJS for: ${resolvedEmail}...`);
     const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
       method: "POST",
       headers: {
@@ -89,7 +97,7 @@ export default async function handler(req: any, res: any) {
     console.log(`[api/send-otp] EmailJS responded. HTTP Status: ${response.status}`);
     
     if (response.ok) {
-      console.log(`[api/send-otp] OTP email sent successfully to ${email}`);
+      console.log(`[api/send-otp] OTP email sent successfully to ${resolvedEmail}`);
       return res.status(200).json({ success: true });
     } else {
       console.error(`[api/send-otp] EmailJS returned error status ${response.status}:`, bodyText);

@@ -155,7 +155,7 @@ import { VERSION_INFO } from './constants/version';
 import { doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, collection, where, orderBy, limit, onSnapshot, Timestamp, serverTimestamp, writeBatch, increment, runTransaction, arrayUnion, arrayRemove, QueryConstraint } from 'firebase/firestore';
 import { useFirebaseQuery } from './hooks/useFirebaseQuery';
 import { firebaseService, getEffectiveUserInfo } from './services/firebaseService';
-import { customAuthService } from './services/customAuthService';
+import { customAuthService, getDeviceDetails } from './services/customAuthService';
 import { emailjsService } from './services/emailjsService';
 import { auth, db } from './lib/firebase';
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, signInAnonymously } from 'firebase/auth';
@@ -231,6 +231,7 @@ import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { LossesPage } from './components/LossesPage';
 import { LossForm } from './components/LossForm';
 import { AdminPanel } from './components/AdminPanel';
+import { SalesConsole } from './components/SalesConsole';
 
 // Re-using the Invoice Details Dialog fragment from the corrupted file
 type Theme = 'light' | 'dark' | 'system';
@@ -610,6 +611,11 @@ export default function App() {
   
   // States from hooks.txt
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isReadOnlyOverride, setIsReadOnlyOverride] = useState(() => localStorage.getItem('pharma-read-only-expired-override') === 'true');
+  const isReadOnly = useMemo(() => {
+    return appUser && appUser.role !== 'admin' && appUser.role !== 'super_admin' && appUser.activationStatus === 'expired' && isReadOnlyOverride;
+  }, [appUser, isReadOnlyOverride]);
+
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem('pharma-active-tab') || 'finance');
   const [showFinancialResetModal, setShowFinancialResetModal] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
@@ -653,6 +659,30 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('pharma-app-mode-setting', appModeSetting);
   }, [appModeSetting]);
+
+  // Read regular user's linked devices for setting tab view
+  const [myLicenseDevices, setMyLicenseDevices] = useState<any[]>([]);
+  const [myLicenseMaxDevices, setMyLicenseMaxDevices] = useState(2);
+  
+  useEffect(() => {
+    if (!appUser || !appUser.licenseCode) {
+      setMyLicenseDevices([]);
+      return;
+    }
+    const q = query(collection(db, 'licenses'), where('licenseKey', '==', appUser.licenseCode.trim().toUpperCase()));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        const data = snapshot.docs[0].data();
+        setMyLicenseDevices(data.activatedDevices || []);
+        setMyLicenseMaxDevices(data.maxDevices || 2);
+      } else {
+        setMyLicenseDevices([]);
+      }
+    }, (err) => {
+      console.error("Error listening to user license devices:", err);
+    });
+    return () => unsubscribe();
+  }, [appUser?.licenseCode]);
 
   const [currentBranchId, setCurrentBranchId] = useState<string | null>(localStorage.getItem('pharma-current-branch-id'));
 
@@ -1102,6 +1132,65 @@ export default function App() {
     });
   }, [rawHistoricalRecords]);
 
+  const validateCurrentUserStatus = async (): Promise<boolean> => {
+    const customUserString = localStorage.getItem('pharma-auth-user');
+    if (!customUserString) return true;
+    try {
+      const customUser = JSON.parse(customUserString);
+      if (!customUser || !customUser.userId) return true;
+
+      const userRef = doc(db, 'appUsers', customUser.userId);
+      const userSnap = await getDoc(userRef);
+
+      let shouldLogout = false;
+      let currentStatus = 'not-found';
+      let isActive = false;
+
+      if (!userSnap.exists()) {
+        shouldLogout = true;
+      } else {
+        const liveData = userSnap.data();
+        currentStatus = liveData.status;
+        if (!currentStatus) {
+          currentStatus = liveData.isVerified ? 'active' : 'pending';
+        }
+        isActive = liveData.isActive !== false;
+
+        if (
+          currentStatus === 'disabled' || 
+          currentStatus === 'deleted' || 
+          currentStatus === 'expired' || 
+          liveData.isActive === false
+        ) {
+          shouldLogout = true;
+        }
+      }
+
+      console.log("APP_BOOT_USER_STATUS", { 
+        userId: customUser.userId, 
+        status: currentStatus, 
+        isActive,
+        shouldLogout
+      });
+
+      if (shouldLogout) {
+        console.log("validateCurrentUserStatus: DETECTED DISABLED/DELETED USER, LOGGING OUT IMMEDIATELY");
+        localStorage.removeItem('pharma-auth-user');
+        localStorage.removeItem('pharma-is-authenticated');
+        localStorage.removeItem('pharma-active-tab');
+        setAppUser(null);
+        setIsAppAuthenticated(false);
+        setAuthStep('login-password');
+        toast.error('حسابك معطل، تواصل مع الدعم.');
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.error("Error in validateCurrentUserStatus during boot checks:", e);
+      return true;
+    }
+  };
+
   useEffect(() => {
     // 1. Check custom user session first from customAuthService
     const customUserString = localStorage.getItem('pharma-auth-user');
@@ -1112,6 +1201,13 @@ export default function App() {
           // Sync with Firestore directly on app boot to enforce live activationStatus & roles (anti-bypass validation)
           const syncAndRestore = async () => {
             try {
+              // 1. First validate user status live
+              const isValid = await validateCurrentUserStatus();
+              if (!isValid) {
+                setAuthStatusLoading(false);
+                return;
+              }
+
               const userRef = doc(db, 'appUsers', customUser.userId);
               const userSnap = await getDoc(userRef);
               let latestUser = customUser;
@@ -1121,19 +1217,169 @@ export default function App() {
               if (userSnap.exists()) {
                 const liveData = userSnap.data();
                 latestUser = { ...customUser, ...liveData };
+
+                let currentStatus = latestUser.status;
+                if (!currentStatus) {
+                  currentStatus = latestUser.isVerified ? 'active' : 'pending';
+                }
+
+                if (currentStatus === 'disabled' || latestUser.isActive === false || currentStatus === 'expired') {
+                  localStorage.removeItem('pharma-auth-user');
+                  localStorage.removeItem('pharma-is-authenticated');
+                  setAppUser(null);
+                  setIsAppAuthenticated(false);
+                  setAuthStep('login-password');
+                  toast.error('حسابك معطل، تواصل مع الدعم.');
+                  setAuthStatusLoading(false);
+                  return;
+                }
+
+                if (currentStatus === 'pending') {
+                  localStorage.removeItem('pharma-auth-user');
+                  localStorage.removeItem('pharma-is-authenticated');
+                  setAppUser(null);
+                  setIsAppAuthenticated(false);
+                  setAuthUsername(latestUser.email);
+                  setAuthStep('verify-signup');
+                  toast.error('الحساب قيد التحقق. يرجى إدخال رمز التحقق OTP أولاً.');
+                  setAuthStatusLoading(false);
+                  return;
+                }
+
+                if (currentStatus === 'deleted') {
+                  localStorage.removeItem('pharma-auth-user');
+                  localStorage.removeItem('pharma-is-authenticated');
+                  setAppUser(null);
+                  setIsAppAuthenticated(false);
+                  setAuthStep('register');
+                  toast.error('حسابك معطل، تواصل مع الدعم.');
+                  setAuthStatusLoading(false);
+                  return;
+                }
                 
                 // If live data does not have super_admin set yet but email is the super admin email, upgrade role
                 if (latestUser.email && latestUser.email.trim().toLowerCase() === superAdminEmail) {
-                  if (latestUser.role !== 'super_admin') {
+                  if (latestUser.role !== 'super_admin' || !latestUser.isProtected) {
                     latestUser.role = 'super_admin';
+                    latestUser.isProtected = true;
                     try {
-                      await updateDoc(userRef, { role: 'super_admin' });
+                      await updateDoc(userRef, { role: 'super_admin', isProtected: true });
                     } catch (e) {
                       console.warn("Could not write bootstrapped super_admin role to Firestore yet:", e);
                     }
                   }
                 }
                 
+                // Live license validation check during App Boot
+                let liveActivationStatus = latestUser.activationStatus || 'unlicensed';
+                let tempPlanType: any = latestUser.planType || 'basic';
+                let tempMaxDevices = latestUser.maxDevices || 2;
+                let tempBranchesCount = latestUser.branchesCount || 1;
+
+                const isSuperAdminBoot = latestUser.email && latestUser.email.trim().toLowerCase() === superAdminEmail;
+                const isAdminBoot = latestUser.role === 'admin';
+
+                if (!isSuperAdminBoot && isAdminBoot !== true) {
+                  const keyToVerify = (latestUser.licenseCode || latestUser.licenseKey || '').trim().toUpperCase();
+                  if (!keyToVerify) {
+                    liveActivationStatus = 'unlicensed';
+                  } else {
+                    try {
+                      const lSnap = await getDocs(query(collection(db, 'licenses'), where('licenseKey', '==', keyToVerify)));
+                      if (lSnap.empty) {
+                        liveActivationStatus = 'unlicensed';
+                      } else {
+                        const lDoc = lSnap.docs[0];
+                        const lData = lDoc.data();
+                        
+                        let currentLStatus = lData.status || 'unused';
+
+                        // Expiry Date check
+                        if (lData.expiryDate) {
+                          const expiry = new Date(lData.expiryDate);
+                          if (!isNaN(expiry.getTime()) && expiry.getTime() < Date.now()) {
+                            currentLStatus = 'expired';
+                            await updateDoc(doc(db, 'licenses', lDoc.id), {
+                              status: 'expired',
+                              updatedAt: new Date().toISOString()
+                            });
+                          }
+                        }
+
+                        if (currentLStatus === 'revoked' || currentLStatus === 'suspended' || currentLStatus === 'expired') {
+                          liveActivationStatus = currentLStatus;
+                        } else if (lData.ownerUserId && lData.ownerUserId !== latestUser.userId) {
+                          liveActivationStatus = 'used_by_other';
+                        } else {
+                          liveActivationStatus = currentLStatus;
+                          tempPlanType = lData.planType || 'basic';
+                          tempMaxDevices = lData.maxDevices || 2;
+                          tempBranchesCount = lData.maxBranches || 1;
+
+                          // B3 Device fingerprint verification
+                          const dev = getDeviceDetails();
+                          const fp = dev.deviceId;
+                          const deviceName = dev.name;
+                          const licDevices = lData.activatedDevices || [];
+                          
+                          const exDevice = licDevices.find((d: any) => d.deviceId === fp);
+                          if (exDevice) {
+                            // Update device last seen
+                            const updatedList = licDevices.map((d: any) => 
+                              d.deviceId === fp 
+                                ? { ...d, lastSeen: new Date().toISOString(), name: deviceName }
+                                : d
+                            );
+                            await updateDoc(doc(db, 'licenses', lDoc.id), {
+                              activatedDevices: updatedList,
+                              updatedAt: new Date().toISOString()
+                            });
+                          } else {
+                            // Verify maximum devices count
+                            if (licDevices.length >= tempMaxDevices) {
+                              liveActivationStatus = 'blocked_device';
+                            } else {
+                              const newDevice = {
+                                deviceId: fp,
+                                name: deviceName,
+                                createdAt: new Date().toISOString(),
+                                lastSeen: new Date().toISOString()
+                              };
+                              const updatedList = [...licDevices, newDevice];
+                              await updateDoc(doc(db, 'licenses', lDoc.id), {
+                                activatedDevices: updatedList,
+                                updatedAt: new Date().toISOString()
+                              });
+                            }
+                          }
+                        }
+                      }
+                    } catch (err) {
+                      console.error("Error doing live license check during boot:", err);
+                    }
+                  }
+
+                  // Update fields
+                  latestUser.activationStatus = liveActivationStatus;
+                  latestUser.licenseStatus = liveActivationStatus;
+                  latestUser.planType = tempPlanType === 'pro' ? 'advanced' : tempPlanType;
+                  latestUser.maxDevices = tempMaxDevices;
+                  latestUser.branchesCount = tempBranchesCount;
+
+                  try {
+                    await updateDoc(userRef, {
+                      activationStatus: liveActivationStatus,
+                      licenseStatus: liveActivationStatus,
+                      planType: tempPlanType === 'pro' ? 'advanced' : tempPlanType,
+                      maxDevices: tempMaxDevices,
+                      branchesCount: tempBranchesCount,
+                      updatedAt: new Date().toISOString()
+                    });
+                  } catch (e) {
+                    console.warn("Could not write live license status to appUsers on boot:", e);
+                  }
+                }
+
                 localStorage.setItem('pharma-auth-user', JSON.stringify(latestUser));
               }
               
@@ -1371,6 +1617,7 @@ export default function App() {
     { id: 'branches', label: 'إدارة الصيدليات', icon: Building2 },
     // Inject custom admin panel if logged user is system admin or super admin
     ...(appUser?.role === 'admin' || appUser?.role === 'super_admin' ? [{ id: 'admin-panel', label: 'لوحة التحكم والمشرف', icon: ShieldAlert }] : []),
+    ...(appUser?.role === 'super_admin' ? [{ id: 'sales-console', label: 'المبيعات والتراخيص', icon: KeyRound }] : []),
     { id: 'settings', label: 'الإعدادات', icon: Settings },
   ].filter(item => {
     if (item.id === 'branches') return userPermissions.canManageBranches;
@@ -4119,8 +4366,16 @@ export default function App() {
         setResendCooldown(60); // 60 seconds resend cooldown
         setOtpExpired(false);
         setAuthOTP('');
-        setAuthStep('verify-signup');
-        toast.success('تم تسجيل الحساب بنجاح؛ يرجى إدخال رمز التحقق OTP الذي أرسلناه إلى بريدك الإلكتروني لتنشيط الحساب.');
+        
+        if (result.pendingUserExists) {
+          setAuthUsername(result.email || authUsername);
+          setAuthFullName(result.fullName || authFullName);
+          setAuthStep('verify-signup');
+          toast.info('البريد مستخدم مسبقاً، أكمل التفعيل. لقد أرسلنا رمز تحقق جديد لبريدك الإلكتروني.');
+        } else {
+          setAuthStep('verify-signup');
+          toast.success('تم إرسال الرمز وتنبيه الحساب الجديد بنجاح؛ يرجى إدخال رمز التحقق لتفعيله.');
+        }
       } else {
         toast.error(result.error || 'فشل إنشاء الحساب');
       }
@@ -4142,6 +4397,117 @@ export default function App() {
     try {
       const result = await customAuthService.verifyUserOTP(authUsername, authOTP);
       if (result.success && result.user) {
+        // Live license validation check during OTP success
+        let liveActivationStatus = result.user.activationStatus || 'unlicensed';
+        let tempPlanType: any = result.user.planType || 'basic';
+        let tempMaxDevices = result.user.maxDevices || 2;
+        let tempBranchesCount = result.user.branchesCount || 1;
+
+        const superAdminEmail = (import.meta.env.VITE_SUPER_ADMIN_EMAIL || 'mustafaenginerr35@gmail.com').trim().toLowerCase();
+        const isSuperAdminOTP = result.user.email && result.user.email.trim().toLowerCase() === superAdminEmail;
+        const isAdminOTP = result.user.role === 'admin';
+
+        if (!isSuperAdminOTP && isAdminOTP !== true) {
+          const keyToVerify = (result.user.licenseCode || result.user.licenseKey || '').trim().toUpperCase();
+          if (!keyToVerify) {
+            liveActivationStatus = 'unlicensed';
+          } else {
+            try {
+              const lSnap = await getDocs(query(collection(db, 'licenses'), where('licenseKey', '==', keyToVerify)));
+              if (lSnap.empty) {
+                liveActivationStatus = 'unlicensed';
+              } else {
+                const lDoc = lSnap.docs[0];
+                const lData = lDoc.data();
+                
+                let currentLStatus = lData.status || 'unused';
+
+                // Expiry Date check
+                if (lData.expiryDate) {
+                  const expiry = new Date(lData.expiryDate);
+                  if (!isNaN(expiry.getTime()) && expiry.getTime() < Date.now()) {
+                    currentLStatus = 'expired';
+                    await updateDoc(doc(db, 'licenses', lDoc.id), {
+                      status: 'expired',
+                      updatedAt: new Date().toISOString()
+                    });
+                  }
+                }
+
+                if (currentLStatus === 'revoked' || currentLStatus === 'suspended' || currentLStatus === 'expired') {
+                  liveActivationStatus = currentLStatus;
+                } else if (lData.ownerUserId && lData.ownerUserId !== result.user.userId) {
+                  liveActivationStatus = 'used_by_other';
+                } else {
+                  liveActivationStatus = currentLStatus;
+                  tempPlanType = lData.planType || 'basic';
+                  tempMaxDevices = lData.maxDevices || 2;
+                  tempBranchesCount = lData.maxBranches || 1;
+
+                  // B3 Device fingerprint verification
+                  const dev = getDeviceDetails();
+                  const fp = dev.deviceId;
+                  const deviceName = dev.name;
+                  const licDevices = lData.activatedDevices || [];
+                  
+                  const exDevice = licDevices.find((d: any) => d.deviceId === fp);
+                  if (exDevice) {
+                    // Update device last seen
+                    const updatedList = licDevices.map((d: any) => 
+                      d.deviceId === fp 
+                        ? { ...d, lastSeen: new Date().toISOString(), name: deviceName }
+                        : d
+                    );
+                    await updateDoc(doc(db, 'licenses', lDoc.id), {
+                      activatedDevices: updatedList,
+                      updatedAt: new Date().toISOString()
+                    });
+                  } else {
+                    // Verify maximum devices count
+                    if (licDevices.length >= tempMaxDevices) {
+                      liveActivationStatus = 'blocked_device';
+                    } else {
+                      const newDevice = {
+                        deviceId: fp,
+                        name: deviceName,
+                        createdAt: new Date().toISOString(),
+                        lastSeen: new Date().toISOString()
+                      };
+                      const updatedList = [...licDevices, newDevice];
+                      await updateDoc(doc(db, 'licenses', lDoc.id), {
+                        activatedDevices: updatedList,
+                        updatedAt: new Date().toISOString()
+                      });
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              console.error("Error doing live license check during OTP verification:", err);
+            }
+          }
+
+          // Update result.user object with live license status
+          result.user.activationStatus = liveActivationStatus;
+          result.user.licenseStatus = liveActivationStatus;
+          result.user.planType = tempPlanType === 'pro' ? 'advanced' : tempPlanType;
+          result.user.maxDevices = tempMaxDevices;
+          result.user.branchesCount = tempBranchesCount;
+
+          try {
+            await updateDoc(doc(db, 'appUsers', result.user.userId), {
+              activationStatus: liveActivationStatus,
+              licenseStatus: liveActivationStatus,
+              planType: tempPlanType === 'pro' ? 'advanced' : tempPlanType,
+              maxDevices: tempMaxDevices,
+              branchesCount: tempBranchesCount,
+              updatedAt: new Date().toISOString()
+            });
+          } catch (e) {
+            console.warn("Could not write live license status to appUsers on OTP success:", e);
+          }
+        }
+
         localStorage.setItem('pharma-auth-user', JSON.stringify(result.user));
         localStorage.setItem('pharma-is-authenticated', 'true');
         
@@ -4155,7 +4521,7 @@ export default function App() {
           isActive: true,
           isSetupComplete: true,
           createdAt: new Date(result.user.createdAt),
-          role: result.user.role || 'manager',
+          role: isSuperAdminOTP ? 'super_admin' : (result.user.role || 'manager'),
           licenseCode: result.user.licenseCode,
           activationStatus: result.user.activationStatus,
           planType: result.user.planType || 'basic',
@@ -4279,12 +4645,121 @@ export default function App() {
         const superAdminEmail = (import.meta.env.VITE_SUPER_ADMIN_EMAIL || 'mustafaenginerr35@gmail.com').trim().toLowerCase();
         const isSuperAdminLogin = loggedInUser.email && loggedInUser.email.trim().toLowerCase() === superAdminEmail;
 
-        if (isSuperAdminLogin && loggedInUser.role !== 'super_admin') {
-          loggedInUser = { ...loggedInUser, role: 'super_admin' };
+        if (isSuperAdminLogin && (loggedInUser.role !== 'super_admin' || !loggedInUser.isProtected)) {
+          loggedInUser = { ...loggedInUser, role: 'super_admin', isProtected: true };
           try {
-            await updateDoc(doc(db, 'appUsers', loggedInUser.userId), { role: 'super_admin' });
+            await updateDoc(doc(db, 'appUsers', loggedInUser.userId), { role: 'super_admin', isProtected: true });
           } catch (e) {
             console.warn("Could not write logged-in super_admin role to Firestore:", e);
+          }
+        }
+
+        // Live license validation check during Login
+        let liveActivationStatus = loggedInUser.activationStatus || 'unlicensed';
+        let tempPlanType: any = loggedInUser.planType || 'basic';
+        let tempMaxDevices = loggedInUser.maxDevices || 2;
+        let tempBranchesCount = loggedInUser.branchesCount || 1;
+
+        if (isSuperAdminLogin !== true && loggedInUser.role !== 'admin') {
+          const keyToVerify = (loggedInUser.licenseCode || loggedInUser.licenseKey || '').trim().toUpperCase();
+          if (!keyToVerify) {
+            liveActivationStatus = 'unlicensed';
+          } else {
+            try {
+              const lSnap = await getDocs(query(collection(db, 'licenses'), where('licenseKey', '==', keyToVerify)));
+              if (lSnap.empty) {
+                liveActivationStatus = 'unlicensed';
+              } else {
+                const lDoc = lSnap.docs[0];
+                const lData = lDoc.data();
+                
+                let currentLStatus = lData.status || 'unused';
+
+                // Expiry Date check
+                if (lData.expiryDate) {
+                  const expiry = new Date(lData.expiryDate);
+                  if (!isNaN(expiry.getTime()) && expiry.getTime() < Date.now()) {
+                    currentLStatus = 'expired';
+                    await updateDoc(doc(db, 'licenses', lDoc.id), {
+                      status: 'expired',
+                      updatedAt: new Date().toISOString()
+                    });
+                  }
+                }
+
+                if (currentLStatus === 'revoked' || currentLStatus === 'suspended' || currentLStatus === 'expired') {
+                  liveActivationStatus = currentLStatus;
+                } else if (lData.ownerUserId && lData.ownerUserId !== loggedInUser.userId) {
+                  liveActivationStatus = 'used_by_other';
+                } else {
+                  liveActivationStatus = currentLStatus;
+                  tempPlanType = lData.planType || 'basic';
+                  tempMaxDevices = lData.maxDevices || 2;
+                  tempBranchesCount = lData.maxBranches || 1;
+
+                  // B3 Device fingerprint verification
+                  const dev = getDeviceDetails();
+                  const fp = dev.deviceId;
+                  const deviceName = dev.name;
+                  const licDevices = lData.activatedDevices || [];
+                  
+                  const exDevice = licDevices.find((d: any) => d.deviceId === fp);
+                  if (exDevice) {
+                    // Update device last seen
+                    const updatedList = licDevices.map((d: any) => 
+                      d.deviceId === fp 
+                        ? { ...d, lastSeen: new Date().toISOString(), name: deviceName }
+                        : d
+                    );
+                    await updateDoc(doc(db, 'licenses', lDoc.id), {
+                      activatedDevices: updatedList,
+                      updatedAt: new Date().toISOString()
+                    });
+                  } else {
+                    // Verify maximum devices count
+                    if (licDevices.length >= tempMaxDevices) {
+                      liveActivationStatus = 'blocked_device';
+                      // Wait! If blocked, we also return success: false from customAuthService during login.
+                      // Doing this double check ensures standard error triggers.
+                    } else {
+                      const newDevice = {
+                        deviceId: fp,
+                        name: deviceName,
+                        createdAt: new Date().toISOString(),
+                        lastSeen: new Date().toISOString()
+                      };
+                      const updatedList = [...licDevices, newDevice];
+                      await updateDoc(doc(db, 'licenses', lDoc.id), {
+                        activatedDevices: updatedList,
+                        updatedAt: new Date().toISOString()
+                      });
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              console.error("Error doing live license check during login:", err);
+            }
+          }
+
+          // Update loggedInUser object with live license status
+          loggedInUser.activationStatus = liveActivationStatus;
+          loggedInUser.licenseStatus = liveActivationStatus;
+          loggedInUser.planType = tempPlanType === 'pro' ? 'advanced' : tempPlanType;
+          loggedInUser.maxDevices = tempMaxDevices;
+          loggedInUser.branchesCount = tempBranchesCount;
+
+          try {
+            await updateDoc(doc(db, 'appUsers', loggedInUser.userId), {
+              activationStatus: liveActivationStatus,
+              licenseStatus: liveActivationStatus,
+              planType: tempPlanType === 'pro' ? 'advanced' : tempPlanType,
+              maxDevices: tempMaxDevices,
+              branchesCount: tempBranchesCount,
+              updatedAt: new Date().toISOString()
+            });
+          } catch (e) {
+            console.warn("Could not write live license status to appUsers on login:", e);
           }
         }
 
@@ -5197,6 +5672,62 @@ export default function App() {
 
   // Gating licensed/activated states for non-admin/non-super_admin users
   if (appUser && appUser.role !== 'admin' && appUser.role !== 'super_admin' && appUser.activationStatus !== 'active') {
+    if (appUser.activationStatus === 'blocked_device') {
+      const dev = getDeviceDetails();
+      return (
+        <div className="h-screen w-full flex flex-col items-center justify-center p-6 bg-background text-foreground animate-fade-in" dir="rtl">
+          <div className="w-full max-w-md bg-card border border-amber-500/20 rounded-3xl shadow-2xl p-8 text-center space-y-6 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 blur-3xl -mr-16 -mt-16" />
+            <div className="bg-amber-500/10 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-amber-500/20">
+              <Laptop className="h-8 w-8 text-amber-500 animate-pulse" />
+            </div>
+            <div className="space-y-2">
+              <h1 className="text-2xl font-black text-foreground">تم تجاوز عدد الأجهزة المسموح بها</h1>
+              <p className="text-muted-foreground text-xs leading-relaxed">
+                لقد تجاوزت عدد الأجهزة النشطة المقترنة برخصتك بالتزامن. يرجى مراجعة لوحة إدارة النظام للأجهزة المرتبطة للتعديل، أو التواصل مع الدعم لترقية باقتك وتوسعة حد الأجهزة.
+              </p>
+            </div>
+            
+            <div className="p-4 bg-muted/40 rounded-2xl border border-border text-[11px] space-y-2 text-right">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">صيدلية المشترك:</span>
+                <span className="font-bold text-foreground">{appUser.displayName || appUser.username}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">معرف هذا الجهاز:</span>
+                <span className="font-mono bg-muted/60 px-1.5 py-0.5 rounded text-foreground select-all">{dev.deviceId}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">اسم هذا الجهاز:</span>
+                <span className="font-sans font-semibold text-foreground">{dev.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">مفتاح الترخيص:</span>
+                <span className="font-mono bg-muted/60 px-1.5 py-0.5 rounded text-foreground">{appUser.licenseCode || 'لا يوجد'}</span>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <Button 
+                onClick={handleLogout} 
+                className="flex-1 bg-muted hover:bg-muted/80 text-foreground border border-border h-12 rounded-xl text-sm font-bold"
+              >
+                تسجيل الخروج
+              </Button>
+              <a 
+                href={`https://wa.me/9647700000000?text=مرحبا، تم تجاوز عدد الأجهزة المسموح بها لرخصتي: ${appUser.licenseCode}، جهاز: ${dev.deviceId} (${dev.name})`}
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="flex-1 bg-primary hover:bg-primary/95 text-primary-foreground h-12 rounded-xl text-sm font-bold flex items-center justify-center gap-1.5"
+              >
+                ترقية الرخصة / الدعم
+              </a>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     if (appUser.activationStatus === 'blocked') {
       return (
         <div className="h-screen w-full flex flex-col items-center justify-center p-6 bg-background text-foreground animate-fade-in" dir="rtl">
@@ -5244,6 +5775,162 @@ export default function App() {
       );
     }
 
+    if (appUser.activationStatus === 'expired' && !isReadOnlyOverride) {
+      return (
+        <div className="h-screen w-full flex flex-col items-center justify-center p-6 bg-background text-foreground animate-fade-in" dir="rtl">
+          <div className="w-full max-w-md bg-card border border-amber-500/20 rounded-3xl shadow-2xl p-8 text-center space-y-6 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 blur-3xl -mr-16 -mt-16" />
+            <div className="bg-amber-500/10 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-amber-500/20">
+              <Clock className="h-8 w-8 text-amber-500 animate-pulse" />
+            </div>
+            <div className="space-y-2">
+              <h1 className="text-2xl font-black text-foreground">انتهت صلاحية الترخيص</h1>
+              <p className="text-muted-foreground text-xs leading-relaxed px-2">
+                لقد انتهت فترة الاشتراك أو صلاحية الترخيص الخاص بصيدليتكم. لتجنب توقف العمل، يرجى تجديد الاشتراك أو إدخال مفتاح ترخيص جديد ومعتمد أدناه.
+              </p>
+            </div>
+            
+            <form onSubmit={handleActivateLicense} className="space-y-4 text-right">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-muted-foreground">مفتاح ترخيص جديد</Label>
+                <Input 
+                  className="bg-muted border border-border text-foreground h-12 rounded-xl text-center font-mono font-bold text-lg tracking-wider pr-3"
+                  placeholder="LIC-XXXXXX-XXXX"
+                  value={activationKeyInput}
+                  onChange={e => setActivationKeyInput(e.target.value.toUpperCase())}
+                  disabled={activationLoading}
+                  required
+                />
+              </div>
+              <Button type="submit" disabled={activationLoading} className="w-full bg-primary hover:bg-primary/90 text-primary-foreground h-12 rounded-xl font-bold flex items-center justify-center gap-2">
+                {activationLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'تحديث الترخيص وتنشيط الاستخدام'}
+              </Button>
+            </form>
+
+            <div className="border-t border-border/60 pt-4 space-y-3">
+              <p className="text-[11px] font-bold text-muted-foreground">أو تصفح بياناتك بشكل محدود دون إضافة وتعديل:</p>
+              <Button 
+                onClick={() => {
+                  setIsReadOnlyOverride(true);
+                  localStorage.setItem('pharma-read-only-expired-override', 'true');
+                  toast.info("تم الدخول في وضع القراءة فقط. يمكنك استعراض وطباعة البيانات والتقارير ولكن لن تتمكن من إجراء أي كشوفات أو تداول مالي.");
+                }} 
+                className="w-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/20 h-11 rounded-xl text-xs font-black transition-all"
+              >
+                الدخول بوضع القراءة فقط
+              </Button>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <Button 
+                onClick={handleLogout} 
+                className="flex-1 bg-muted hover:bg-muted/80 text-foreground border border-border h-11 rounded-xl text-xs font-bold"
+              >
+                تسجيل الخروج
+              </Button>
+              <a 
+                href={`https://wa.me/9647700000000?text=مرحبا، رخصة صيدليتي منتهية الصلاحية: ${appUser.licenseCode}`}
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="flex-1 bg-stone-900 dark:bg-stone-800 hover:bg-stone-800 dark:hover:bg-stone-700 text-white h-11 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border border-border"
+              >
+                طلب التجديد / المبيعات
+              </a>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (appUser.activationStatus === 'suspended') {
+      return (
+        <div className="h-screen w-full flex flex-col items-center justify-center p-6 bg-background text-foreground animate-fade-in" dir="rtl">
+          <div className="w-full max-w-md bg-card border border-red-500/20 rounded-3xl shadow-2xl p-8 text-center space-y-6 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/5 blur-3xl -mr-16 -mt-16" />
+            <div className="bg-red-500/10 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-red-500/20">
+              <Lock className="h-8 w-8 text-red-500 animate-pulse" />
+            </div>
+            <div className="space-y-2">
+              <h1 className="text-2xl font-black text-foreground">تم تعليق الترخيص</h1>
+              <p className="text-muted-foreground text-xs leading-relaxed px-2">
+                تم تعليق حساب هذه الصيدلية مؤقتاً لأسباب تتعلق بالاشتراك الفني للشبكة أو متطلبات صيانة الحساب. يرجى التواصل مع الدعم الفني فوراً.
+              </p>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <Button 
+                onClick={handleLogout} 
+                className="flex-1 bg-muted hover:bg-muted/80 text-foreground border border-border h-12 rounded-xl text-sm font-bold"
+              >
+                تسجيل الخروج
+              </Button>
+              <a 
+                href={`https://wa.me/9647700000000?text=مرحبا، الترخيص الخاص بصيدليتي معلق: ${appUser.licenseCode}`}
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="flex-1 bg-primary hover:bg-primary/95 text-primary-foreground h-12 rounded-xl text-sm font-bold flex items-center justify-center gap-1.5"
+              >
+                التواصل مع الدعم
+              </a>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (appUser.activationStatus === 'revoked') {
+      return (
+        <div className="h-screen w-full flex flex-col items-center justify-center p-6 bg-background text-foreground animate-fade-in" dir="rtl">
+          <div className="w-full max-w-md bg-card border border-rose-500/20 rounded-3xl shadow-2xl p-8 text-center space-y-6 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/5 blur-3xl -mr-16 -mt-16" />
+            <div className="bg-rose-500/10 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-rose-500/20">
+              <XCircle className="h-8 w-8 text-rose-500" />
+            </div>
+            <div className="space-y-2">
+              <h1 className="text-2xl font-black text-foreground">تم إلغاء الترخيص</h1>
+              <p className="text-muted-foreground text-xs leading-relaxed px-2">
+                إن رخصة الاستخدام المرتبطة بهذا الحساب تم إبطال مفعولها وإلغاؤها نهائياً. يرجى إدخال مفتاح ترخيص جديد وصحيح للوصول مجدداً.
+              </p>
+            </div>
+
+            <form onSubmit={handleActivateLicense} className="space-y-4 text-right">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-muted-foreground">مفتاح ترخيص جديد</Label>
+                <Input 
+                  className="bg-muted border border-border text-foreground h-12 rounded-xl text-center font-mono font-bold text-lg tracking-wider pr-3"
+                  placeholder="LIC-XXXXXX-XXXX"
+                  value={activationKeyInput}
+                  onChange={e => setActivationKeyInput(e.target.value.toUpperCase())}
+                  disabled={activationLoading}
+                  required
+                />
+              </div>
+              <Button type="submit" disabled={activationLoading} className="w-full bg-primary hover:bg-primary/90 text-primary-foreground h-12 rounded-xl font-bold flex items-center justify-center gap-2">
+                {activationLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'تفعيل رخصة جديدة'}
+              </Button>
+            </form>
+
+            <div className="flex gap-3 pt-2">
+              <Button 
+                onClick={handleLogout} 
+                className="flex-1 bg-muted hover:bg-muted/80 text-foreground border border-border h-12 rounded-xl text-sm font-bold"
+              >
+                تسجيل الخروج
+              </Button>
+              <a 
+                href={`https://wa.me/9647700000000?text=مرحبا، الترخيص الخاص بصيدليتي ملغى نهائيا: ${appUser.licenseCode}`}
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="flex-1 bg-rose-600 hover:bg-rose-500 text-white h-12 rounded-xl text-sm font-bold flex items-center justify-center gap-1.5"
+              >
+                طلب مساعدة فورية
+              </a>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     // Default expired/unactivated License Activation Screen
     return (
       <div className="h-screen w-full flex flex-col items-center justify-center p-6 bg-background text-foreground animate-fade-in" dir="rtl">
@@ -5255,13 +5942,31 @@ export default function App() {
           <div className="space-y-1.5">
             <h1 className="text-2xl font-black text-foreground">تنشيط رخصة البرنامج</h1>
             <p className="text-muted-foreground text-xs leading-relaxed px-2">
-              هذه الصيدلية السحابية تتطلب تفعيل الرخصة الدائمة لمرة واحدة لتتمكن من استخدام النظام بكامل صلاحياته. يرجى إدخال مفتاح التنشيط:
+              هذه الصيدلية السحابية تتطلب تفعيل الرخصة لتتمكن من استخدام النظام بكامل صلاحياته. يرجى إدخال مفتاح الترخيص أدناه:
             </p>
           </div>
 
+          {appUser.activationStatus && appUser.activationStatus !== 'unlicensed' && appUser.activationStatus !== 'unused' && (
+            <div className="bg-rose-500/10 border border-rose-500/20 text-rose-500 text-xs py-3 px-4 rounded-xl text-right space-y-1">
+              <span className="font-bold block text-sm">⚠️ تنبيه حالة الترخيص:</span>
+              {appUser.activationStatus === 'expired' && (
+                <span>إنّ مفتاح الترخيص الخاص بك منتهي الصلاحية ويحتاج لتمديد. يرجى تجديد الاشتراك أو إدخال مفتاح ترخيص جديد.</span>
+              )}
+              {appUser.activationStatus === 'suspended' && (
+                <span>إنّ مفتاح الترخيص الحالي معلق أو موقوف مؤقتاً. يرجى تزويدنا بمفتاح ترخيص فعال لتفعيل النظام.</span>
+              )}
+              {appUser.activationStatus === 'revoked' && (
+                <span>إنّ مفتاح الترخيص ملغى نهائياً ومبطل الاستخدام. الرجاء كتابة مفتاح تفعيل جديد معتمد.</span>
+              )}
+              {appUser.activationStatus === 'used_by_other' && (
+                <span>مفتاح الترخيص هذا مستخدم مسبقاً لدى حساب مستخدم آخر. يرجى إدخال مفتاح ترخيص غير مستخدم.</span>
+              )}
+            </div>
+          )}
+
           <form onSubmit={handleActivateLicense} className="space-y-4 text-right">
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-muted-foreground">مفتاح رخصة التنشيط التفعيلي (Key)</Label>
+              <Label className="text-xs font-bold text-muted-foreground">مفتاح الترخيص (License Key)</Label>
               <div className="relative">
                 <Input 
                   className="bg-muted border border-border text-foreground h-12 rounded-xl text-center font-mono font-bold text-lg tracking-wider focus:ring-2 focus:ring-primary/20 focus:border-primary pr-3"
@@ -5273,7 +5978,7 @@ export default function App() {
                 />
               </div>
               <p className="text-[10px] text-muted-foreground text-center">
-                احصل على الرمز من Admin Panel الخاص بالنظام أو المبيعات.
+                احصل على الرمز من إدارة النظام أو المبيعات.
               </p>
             </div>
 
@@ -5285,10 +5990,10 @@ export default function App() {
               {activationLoading ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  جاري التحقق وترخيص الجهاز سحابياً...
+                  جاري التحقق وتفعيل الترخيص سحابياً...
                 </>
               ) : (
-                'تنشيط وتفعيل البرنامج الآن'
+                'تفعيل الترخيص'
               )}
             </Button>
           </form>
@@ -5300,7 +6005,7 @@ export default function App() {
               rel="noopener noreferrer"
               className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 py-3.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border border-emerald-500/15"
             >
-              شراء مفتاح رخصة جديد (واتساب)
+              تواصل مع الدعم لشراء ترخيص
             </a>
             <Button 
               onClick={handleLogout} 
@@ -5688,6 +6393,28 @@ export default function App() {
         </header>
 
         <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-8 custom-scrollbar">
+          {isReadOnly && (
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between gap-4 overflow-hidden shadow-sm mb-6 animate-pulse" dir="rtl">
+              <div className="flex items-center gap-3">
+                <div className="size-10 bg-amber-500/20 rounded-xl flex items-center justify-center text-amber-500 shrink-0">
+                  <AlertCircle className="h-6 w-6" />
+                </div>
+                <div className="text-right">
+                  <h4 className="font-black text-sm text-amber-500">وضع الاستعراض المحدود (قراءة فقط)</h4>
+                  <p className="text-[10px] font-bold text-muted-foreground mt-1 font-sans">تنبيه: انتهت صلاحية الترخيص السحابي لصيدليتكم. يمكنك عرض التقارير وتصفح السجلات والطباعة ولكن جميع عمليات الإضافة والتعديل والحفظ مغلقة للتأمين.</p>
+                </div>
+              </div>
+              <Button 
+                onClick={() => {
+                  setIsReadOnlyOverride(false);
+                  localStorage.removeItem('pharma-read-only-expired-override');
+                }} 
+                className="bg-amber-500 hover:bg-amber-600 text-white rounded-xl h-10 px-4 font-black text-xs gap-1 transition-all active:scale-95 shrink-0"
+              >
+                شاشة التنشيط والتجديد
+              </Button>
+            </div>
+          )}
           <AnimatePresence>
             {isUpdateAvailable && isUpdateBannerVisible && (
               <motion.div 
@@ -7108,6 +7835,44 @@ export default function App() {
                       </div>
                    </Card>
 
+                    {/* B3 Regular User Connected Devices Card */}
+                    {appUser && appUser.licenseCode && (
+                      <Card className="bg-card border-border rounded-2xl p-8 shadow-sm">
+                         <CardTitle className="text-sm font-black text-foreground mb-4 uppercase tracking-widest flex items-center gap-2">
+                           <Laptop className="h-4 w-4 text-violet-500 animate-pulse" />
+                           الأجهزة المرتبطة برخصتك ({myLicenseDevices.length} / {myLicenseMaxDevices})
+                         </CardTitle>
+                         <p className="text-[11px] font-bold text-muted-foreground mb-4 leading-relaxed">
+                           توضح القائمة الأجهزة المصرح لها بالولوج السحابي لبرنامج صيدليتي بالتزامن. لحذف جهاز، يرجى مراجعة إدارة الدعم مع كتابة معرّف الجهاز المطلوب حذفه.
+                         </p>
+                         
+                         {myLicenseDevices.length === 0 ? (
+                           <div className="text-[10px] text-muted-foreground text-center py-2">لا توجد أجهزة نشطة حالياً.</div>
+                         ) : (
+                           <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                             {myLicenseDevices.map((d: any, index: number) => {
+                               const localDev = getDeviceDetails();
+                               const isThisDevice = d.deviceId === localDev.deviceId;
+                               return (
+                                 <div key={d.deviceId || index} className={`p-3 rounded-xl border flex justify-between items-center text-xs ${isThisDevice ? 'bg-primary/5 border-primary/20 shadow-sm shadow-primary/5' : 'bg-muted/10 border-border/60'}`}>
+                                   <div className="space-y-0.5">
+                                     <div className="font-black text-foreground flex items-center gap-1.5">
+                                       {d.name || 'جهاز مجهول'}
+                                       {isThisDevice && <span className="text-[9px] bg-primary text-primary-foreground font-black px-1.5 py-0.5 rounded">هذا الجهاز</span>}
+                                     </div>
+                                     <div className="text-[9px] text-muted-foreground font-mono select-all">
+                                        ID: {d.deviceId}
+                                     </div>
+                                     <div className="text-[9px] text-muted-foreground">آخر حضور: {d.lastSeen ? new Date(d.lastSeen).toLocaleDateString() : 'غير معروف'}</div>
+                                   </div>
+                                 </div>
+                               );
+                             })}
+                           </div>
+                         )}
+                      </Card>
+                    )}
+
                    <Card className="bg-muted/10 border-border rounded-2xl p-8 shadow-sm">
                       <CardTitle className="text-sm font-black text-foreground mb-6 uppercase tracking-widest">تلميحات النظام</CardTitle>
                       <div className="space-y-4 text-xs font-bold text-muted-foreground leading-relaxed">
@@ -7330,6 +8095,10 @@ export default function App() {
 
             <TabsContent value="admin-panel" className="animate-in fade-in slide-in-from-left-4 duration-500 pb-20 md:pb-0">
                {appUser?.role === 'admin' || appUser?.role === 'super_admin' ? <AdminPanel /> : <div className="py-24 text-center text-muted-foreground font-black">عذراً، هذه الصفحة حصرية لمدير النظام الرئيسي.</div>}
+            </TabsContent>
+
+            <TabsContent value="sales-console" className="animate-in fade-in slide-in-from-left-4 duration-500 pb-20 md:pb-0">
+               {appUser?.role === 'super_admin' ? <SalesConsole /> : <div className="py-24 text-center text-muted-foreground font-black">عذراً، هذه الصفحة حصرية للمشرف العام الرئيسي للنظام.</div>}
             </TabsContent>
 
             <TabsContent value="settings" className="space-y-8 animate-in fade-in duration-500 pb-20 md:pb-0">

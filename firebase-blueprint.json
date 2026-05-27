@@ -128,6 +128,28 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["patientName", "phone", "medicineName", "status", "ownerId"]
+    },
+    "License": {
+      "title": "License",
+      "description": "Software license control document",
+      "type": "object",
+      "properties": {
+        "licenseKey": { "type": "string" },
+        "planType": { "type": "string", "enum": ["basic", "pro", "lifetime"] },
+        "status": { "type": "string", "enum": ["active", "expired", "suspended", "revoked", "unused"] },
+        "ownerUserId": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "ownerEmail": { "type": "string" },
+        "ownerPhone": { "type": "string" },
+        "maxDevices": { "type": "number" },
+        "maxBranches": { "type": "number" },
+        "activatedDevices": { "type": "array" },
+        "activatedAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" },
+        "notes": { "type": "string" },
+        "paymentStatus": { "type": "string", "enum": ["paid", "pending", "manual"] }
+      },
+      "required": ["licenseKey", "planType", "status"]
     }
   },
   "firestore": {
@@ -154,6 +176,7 @@
     "openingCash": { "schema": "OpeningCash", "description": "Opening cash records" },
     "supplierOpeningBalances": { "schema": "SupplierOpeningBalance", "description": "Supplier initial tracking" },
     "loans": { "schema": "Loan", "description": "Loans and returned deposits records" },
-    "system": { "schema": "SystemConfig", "description": "Global app version and config" }
+    "system": { "schema": "SystemConfig", "description": "Global app version and config" },
+    "licenses": { "schema": "License", "description": "SaaS license details" }
   }
 }
