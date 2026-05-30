@@ -114,6 +114,8 @@ function cleanData(data: any): any {
 const activeOperations = new Set<string>();
 const globalSavingLock = new Map<string, number>();
 
+const collectionListeners = new Set<(collectionName: string) => void>();
+
 function checkIsReadOnlyBlocked(collectionName?: string) {
   if (['appUsers', 'licenses', 'notifications', 'announcementReads', 'admins', 'sales'].includes(collectionName || '')) {
     return;
@@ -140,6 +142,24 @@ function checkIsReadOnlyBlocked(collectionName?: string) {
 }
 
 export const firebaseService = {
+  onCollectionChange(listener: (collectionName: string) => void) {
+    collectionListeners.add(listener);
+    return () => {
+      collectionListeners.delete(listener);
+    };
+  },
+
+  notifyCollectionChange(collectionName: string) {
+    console.log(`[FirebaseService] Notifying change in collection: ${collectionName}`);
+    collectionListeners.forEach(listener => {
+      try {
+        listener(collectionName);
+      } catch (e) {
+        console.error("Change listener error:", e);
+      }
+    });
+  },
+
   // Centralized Financial Save Operation
   async saveFinancialRecordOnce(data: any) {
     checkIsReadOnlyBlocked('ledgerEntries');
@@ -214,6 +234,7 @@ export const firebaseService = {
       await setDoc(docRef, finalRecord);
       
       console.log("SAVE SUCCESS:", docRef.id);
+      firebaseService.notifyCollectionChange('ledgerEntries');
       return { success: true, id: docRef.id };
     } catch (error) {
       globalSavingLock.delete(operationKey);
@@ -242,6 +263,7 @@ export const firebaseService = {
     try {
       await setDoc(docRef, preparedData);
       console.log(`[Firebase] Successfully added to ${collectionName}:`, docRef.id);
+      firebaseService.notifyCollectionChange(collectionName);
       return docRef.id;
     } catch (error) {
       console.error(`[Firebase] Error adding to ${collectionName}:`, error);
@@ -261,6 +283,7 @@ export const firebaseService = {
         updatedAt: new Date()
       }));
       console.log(`[Firebase] Successfully updated ${collectionName}/${id}`);
+      firebaseService.notifyCollectionChange(collectionName);
     } catch (error) {
       console.error(`[Firebase] Error updating ${collectionName}/${id}:`, error);
       handleFirestoreError(error, OperationType.WRITE, `${collectionName}/${id}`);
@@ -325,6 +348,11 @@ export const firebaseService = {
       // 3. Commit batch
       await batch.commit();
       console.log(`[Firebase] Atomically deleted ${collectionName}/${id} and related data`);
+      firebaseService.notifyCollectionChange(collectionName);
+      // Notify other collections that might have been cascade-deleted
+      ['ledgerEntries', 'transactions', 'entityActivities', 'notifications', 'historicalRecords'].forEach(col => 
+        firebaseService.notifyCollectionChange(col)
+      );
 
       // 4. Clean up storage (cannot be part of Firestore batch)
       if (data && data.imageUrl) {
@@ -375,6 +403,7 @@ export const firebaseService = {
     try {
       await setDoc(docRef, cleanData({ ...data, updatedAt: new Date() }), options);
       console.log(`[Firebase] Successfully set ${collectionName}/${id}`);
+      firebaseService.notifyCollectionChange(collectionName);
     } catch (error) {
       console.error(`[Firebase] Error setting ${collectionName}/${id}:`, error);
       handleFirestoreError(error, OperationType.WRITE, `${collectionName}/${id}`);

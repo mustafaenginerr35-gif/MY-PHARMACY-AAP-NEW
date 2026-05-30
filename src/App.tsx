@@ -769,7 +769,10 @@ export default function App() {
   const [reportDetailData, setReportDetailData] = useState<any[]>([]);
 
   // Queries
-  const ownerQuery = useMemo(() => [where('ownerId', '==', user?.uid || 'demo-user')], [user?.uid]);
+  const ownerQuery = useMemo(() => {
+    const activeUid = appUser?.userId || getEffectiveUserInfo().uid || 'demo-user';
+    return [where('ownerId', '==', activeUid)];
+  }, [appUser?.userId]);
   const branchesQuery = useMemo(() => ownerQuery, [ownerQuery]);
   const transactionsQuery = useMemo(() => ownerQuery, [ownerQuery]);
   const entitiesQuery = useMemo(() => ownerQuery, [ownerQuery]);
@@ -2364,8 +2367,17 @@ export default function App() {
   (window as any).handleReportCardClick = handleReportCardClick;
 
   const handleAddEntity = async (data: any): Promise<string | void> => {
-    console.log("Adding entity...");
-    const targetBranchId = currentBranchId || (branches.length > 0 ? branches[0].id : 'main');
+    console.log("[App] Adding entity starting...", data);
+    
+    const activeUserId = appUser?.userId || getEffectiveUserInfo().uid;
+    if (!activeUserId) {
+      const authErr = 'عملية غير مسموحة: لم يتم التعرف على معرف المستخدم النشط (unauthorized/undefined activeUserId)';
+      console.error("[App] handleAddEntity blocked:", authErr);
+      toast.error(authErr);
+      throw new Error(authErr);
+    }
+
+    const defaultBranchId = currentBranchId || (branches.length > 0 ? branches[0].id : 'main');
     const initialBalance = Number(data.initialBalance) || 0;
 
     let imageUrl = '';
@@ -2395,8 +2407,8 @@ export default function App() {
       totalInvoices: 0,
       totalPayments: 0,
       limit: Number(data.limit) || 0,
-      branchId: (targetBranchId as string) || undefined,
-      ownerId: appUser?.userId || 'demo-user',
+      branchId: defaultBranchId as string,
+      ownerId: activeUserId,
       status: data.status || 'نشط',
       notes: data.notes as string,
       imageUrl,
@@ -2406,8 +2418,15 @@ export default function App() {
     } as any;
     
     try {
+      console.log("[App] Saving entity to 'entities' collection directly:", newEntity);
       const entityId = await firebaseService.addDocument('entities', newEntity as Entity);
       
+      if (!entityId) {
+        throw new Error('فشلت عملية إنشاء document المورد في Firestore أو تم إرجاع معرف فارغ');
+      }
+
+      console.log("[App] Entity doc created successfully. ID:", entityId);
+
       // Activity
       await firebaseService.addDocument('entityActivities', {
         entityId: entityId,
@@ -2416,8 +2435,8 @@ export default function App() {
         details: `تم إنشاء حساب مورد جديد: ${data.name}`,
         performedBy: appUser?.username || 'user',
         createdAt: new Date(),
-        ownerId: appUser?.userId || 'demo-user',
-        branchId: targetBranchId as string || undefined
+        ownerId: activeUserId,
+        branchId: defaultBranchId as string
       });
 
       setIsAddEntityOpen(false);
@@ -2430,9 +2449,28 @@ export default function App() {
       }
 
       return entityId;
-    } catch (err) {
-      console.error("[App] Error adding entity:", err);
-      toast.error('حدث خطأ أثناء إضافة المورد');
+    } catch (err: any) {
+      console.error("[App] FATAL ERROR IN handleAddEntity (Detailed log):", {
+        error: err,
+        message: err?.message,
+        payload: newEntity,
+        stack: err?.stack
+      });
+
+      let errorMsg = 'حدث خطأ أثناء إضافة المورد في قاعدة البيانات';
+      if (err?.message) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed.error === 'Missing or insufficient permissions.') {
+            errorMsg = 'عذراً، ليس لديك صلاحية لإضافة مورد (مشكلة الأذونات - Permission Denied)';
+          } else {
+            errorMsg = `فشل الحفظ: ${parsed.error}`;
+          }
+        } catch {
+          errorMsg = `فشل الحفظ: ${err.message}`;
+        }
+      }
+      toast.error(errorMsg);
       throw err; // Allow EntityForm to handle it
     }
   };
@@ -3073,9 +3111,22 @@ export default function App() {
       setInvBonus('0');
       setInvImageFiles([]);
       toast.success('تم إضافة الفاتورة بنجاح');
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to save invoice:", err);
-      toast.error('حدث خطأ أثناء إضافة الفاتورة');
+      let errorMsg = 'حدث خطأ أثناء إضافة الفاتورة';
+      if (err?.message) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed.error === 'Missing or insufficient permissions.') {
+            errorMsg = 'عذراً، ليس لديك صلاحية لإضافة فاتورة (مشكلة الأذونات)';
+          } else {
+            errorMsg = `فشل الحفظ: ${parsed.error}`;
+          }
+        } catch {
+          errorMsg = `فشل الحفظ: ${err.message}`;
+        }
+      }
+      toast.error(errorMsg);
     } finally {
       setIsSavingRecord(false);
     }
@@ -3929,7 +3980,17 @@ export default function App() {
     setIsSavingRecord(true);
     
     console.log("[App] handleAddRevenue called with:", data);
-    const targetBranchId = currentBranchId || (branches.length > 0 ? branches[0].id : 'main');
+    
+    const activeUserId = appUser?.userId || getEffectiveUserInfo().uid;
+    if (!activeUserId) {
+      const authErr = 'عملية غير مسموحة: لم يتم التعرف على معرف المستخدم النشط للحفظ';
+      console.error("[App] handleAddRevenue BLOCKED:", authErr);
+      toast.error(authErr);
+      setIsSavingRecord(false);
+      return;
+    }
+
+    const defaultBranchId = currentBranchId || (branches.length > 0 ? branches[0].id : 'main');
     
     try {
       let imageUrl = '';
@@ -3948,20 +4009,23 @@ export default function App() {
 
       const txPayload = {
         ...data,
-        branchId: targetBranchId as string,
-        createdBy: appUser?.userId || 'demo-user',
-        ownerId: appUser?.userId || 'demo-user',
-        userId: appUser?.userId || 'demo-user',
+        branchId: defaultBranchId as string,
+        createdBy: activeUserId,
+        ownerId: activeUserId,
+        userId: activeUserId,
         imageUrl,
         imageUrls,
         description: `${data.incomeTypeCustom || 'مبيعات'} - ${data.incomeType === 'cash' ? 'نقدي' : 'دين'}`
       };
 
+      console.log("[App] Saving revenue payload to Firestore 'ledgerEntries':", txPayload);
       const result = await firebaseService.saveRevenue(txPayload);
       
       if (result?.blocked) {
-        toast.info('هذه العملية مسجلة بالفعل');
+        console.warn("[App] Save revenue blocked (duplicate/lock detected):", result);
+        toast.info('هذه العملية مسجلة بالفعل في النظام لمنع التكرار');
       } else {
+        console.log("[App] Revenue saved successfully. ID:", result?.id);
         toast.success('تم حفظ الوارد بنجاح');
       }
 
@@ -3970,14 +4034,19 @@ export default function App() {
       setIsAddRevenueOpen(false);
       
     } catch (err: any) {
-      console.error("[App] Failed to add revenue:", err);
-      // Determine error message in Arabic
-      let errorMsg = 'حدث خطأ أثناء حفظ الوارد';
+      console.error("[App] FATAL ERROR IN handleAddRevenue (Detailed log):", {
+        error: err,
+        message: err?.message,
+        payload: data,
+        stack: err?.stack
+      });
+
+      let errorMsg = 'حدث خطأ أثناء حفظ الوارد في قاعدة البيانات';
       if (err?.message) {
         try {
           const parsed = JSON.parse(err.message);
           if (parsed.error === 'Missing or insufficient permissions.') {
-            errorMsg = 'عذراً، ليس لديك صلاحية لإضافة وارد';
+            errorMsg = 'عذراً، ليس لديك صلاحية لإضافة وارد (مشكلة الأذونات - Permission Denied)';
           } else {
             errorMsg = `فشل الحفظ: ${parsed.error}`;
           }
@@ -4026,7 +4095,17 @@ export default function App() {
     setIsSavingRecord(true);
 
     console.log("[App] handleAddExpense called with:", data);
-    const targetBranchId = currentBranchId || (branches.length > 0 ? branches[0].id : 'main');
+    
+    const activeUserId = appUser?.userId || getEffectiveUserInfo().uid;
+    if (!activeUserId) {
+      const authErr = 'عملية غير مسموحة: لم يتم التعرف على معرف المستخدم النشط لحفظ المصروف';
+      console.error("[App] handleAddExpense BLOCKED:", authErr);
+      toast.error(authErr);
+      setIsSavingRecord(false);
+      return;
+    }
+
+    const defaultBranchId = currentBranchId || (branches.length > 0 ? branches[0].id : 'main');
 
     let detailedDescription = data.description;
     if (data.category === 'rent' || data.category === 'rent_pharmacy') {
@@ -4059,30 +4138,39 @@ export default function App() {
       ...data,
       description: detailedDescription || categoryLabel,
       statement: data.statement || categoryLabel,
-      branchId: targetBranchId as string,
-      createdBy: appUser?.userId || 'demo-user',
-      ownerId: appUser?.userId || 'demo-user',
-      userId: appUser?.userId || 'demo-user'
+      branchId: defaultBranchId as string,
+      createdBy: activeUserId,
+      ownerId: activeUserId,
+      userId: activeUserId
     };
     
     try {
+      console.log("[App] Saving expense payload to Firestore 'ledgerEntries':", txPayload);
       const result = await firebaseService.saveExpense(txPayload);
       
       if (result?.blocked) {
-        toast.info('هذه العملية مسجلة بالفعل');
+        console.warn("[App] Save expense blocked (duplicate/lock detected):", result);
+        toast.info('هذه العملية مسجلة بالفعل في النظام لمنع التكرار');
       } else {
+        console.log("[App] Expense saved successfully. ID:", result?.id);
         toast.success('تم حفظ المصروف بنجاح');
       }
 
       setIsAddExpenseOpen(false);
     } catch (err: any) {
-      console.error("[App] Failed to add expense:", err);
-      let errorMsg = 'حدث خطأ أثناء حفظ المصروف';
+      console.error("[App] FATAL ERROR IN handleAddExpense (Detailed log):", {
+        error: err,
+        message: err?.message,
+        payload: data,
+        stack: err?.stack
+      });
+
+      let errorMsg = 'حدث خطأ أثناء حفظ المصروف في قاعدة البيانات';
       if (err?.message) {
         try {
           const parsed = JSON.parse(err.message);
           if (parsed.error === 'Missing or insufficient permissions.') {
-            errorMsg = 'عذراً، ليس لديك صلاحية لإضافة مصروف';
+            errorMsg = 'عذراً، ليس لديك صلاحية لإضافة مصروف (مشكلة الأذونات - Permission Denied)';
           } else {
             errorMsg = `فشل الحفظ: ${parsed.error}`;
           }
@@ -4098,12 +4186,22 @@ export default function App() {
   };
 
   const handleAddLoss = async (data: any) => {
+    const activeUserId = appUser?.userId || getEffectiveUserInfo().uid;
+    if (!activeUserId) {
+      const authErr = 'عملية غير مسموحة: لم يتم التعرف على معرف المستخدم النشط لحفظ سجل الخسارة';
+      console.error("[App] handleAddLoss BLOCKED:", authErr);
+      toast.error(authErr);
+      return;
+    }
+    const defaultBranchId = currentBranchId || 'main';
+
     try {
+      console.log("[App] Saving loss payload to Firestore 'expiredDamagedLosses':", data);
       // 1. Add to Firestore
       await firebaseService.addDocument('expiredDamagedLosses', {
         ...data,
-        ownerId: appUser?.userId || 'demo-user',
-        branchId: currentBranchId || 'main'
+        ownerId: activeUserId,
+        branchId: defaultBranchId
       });
 
       // 2. If linked to invoice, update invoice remaining amount
@@ -4134,9 +4232,23 @@ export default function App() {
 
       setIsAddLossOpen(false);
       toast.success('تم تسجيل الخسارة وتحديث الحسابات بنجاح');
-    } catch (err) {
-      console.error(err);
-      toast.error('فشل في تسجيل الخسارة');
+    } catch (err: any) {
+      console.error("[App] FATAL ERROR IN handleAddLoss (Detailed log):", {
+        error: err,
+        message: err?.message,
+        payload: data,
+        stack: err?.stack
+      });
+      let errorMsg = 'فشل في تسجيل الخسارة';
+      if (err?.message) {
+         try {
+            const parsed = JSON.parse(err.message);
+            errorMsg = `فشل حفظ الخسارة: ${parsed.error}`;
+         } catch {
+            errorMsg = `فشل حفظ الخسارة: ${err.message}`;
+         }
+      }
+      toast.error(errorMsg);
     }
   };
 

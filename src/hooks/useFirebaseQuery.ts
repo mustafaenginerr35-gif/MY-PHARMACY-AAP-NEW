@@ -10,6 +10,7 @@ export function useFirebaseQuery<T>(collectionName: string, constraints: QueryCo
   const [data, setData] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(auth.currentUser);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   useEffect(() => {
     return onAuthStateChanged(auth, (u) => {
@@ -28,7 +29,7 @@ export function useFirebaseQuery<T>(collectionName: string, constraints: QueryCo
       return;
     }
 
-    console.log(`[useFirebaseQuery] Subscribed to "${collectionName}"`, { isPublicCollection, hasUser: !!user });
+    console.log(`[useFirebaseQuery] Subscribed to "${collectionName}" (trigger: ${refreshTrigger})`, { isPublicCollection, hasUser: !!user });
     const unsubscribe = firebaseService.listenCollection(
       collectionName, 
       (newData) => {
@@ -43,7 +44,30 @@ export function useFirebaseQuery<T>(collectionName: string, constraints: QueryCo
     );
 
     return () => unsubscribe();
-  }, [collectionName, user, isLocallyAuth, constraints]);
+  }, [collectionName, user, isLocallyAuth, constraints, refreshTrigger]);
 
-  return { data, loading };
+  useEffect(() => {
+    const unsubscribe = (firebaseService as any).onCollectionChange?.((changedCollectionName: string) => {
+      // Re-fetch triggers for related entities and states to keep lists cohesive
+      const isRelated = 
+        changedCollectionName === collectionName ||
+        (collectionName === 'ledgerEntries' && ['ledgerEntries', 'transactions', 'invoices', 'revenues', 'expenses'].includes(changedCollectionName)) ||
+        (collectionName === 'entities' && ['entities', 'suppliers', 'ledgerEntries'].includes(changedCollectionName)) ||
+        (collectionName === 'transactions' && ['transactions', 'ledgerEntries'].includes(changedCollectionName)) ||
+        (collectionName === 'deadlines' && ['deadlines', 'ledgerEntries'].includes(changedCollectionName));
+
+      if (isRelated) {
+        console.log(`[useFirebaseQuery] Refetching collection "${collectionName}" because "${changedCollectionName}" was updated`);
+        setRefreshTrigger(prev => prev + 1);
+      }
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [collectionName]);
+
+  const refetch = () => setRefreshTrigger(prev => prev + 1);
+
+  return { data, loading, refetch };
 }
