@@ -144,5 +144,20 @@ service cloud.firestore {
     match /licenses/{licenseId} {
       allow read, write: if true;
     }
+
+    // Sales tracking & configurations
+    match /sales/{saleId} {
+      allow read, write: if true;
+    }
+
+    // User/System Settings
+    match /settings/{settingsId} {
+      allow read, write: if true;
+    }
+
+    // Connection testing
+    match /test_connection/{id} {
+      allow read, write: if true;
+    }
   }
 }
