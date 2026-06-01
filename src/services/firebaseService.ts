@@ -278,6 +278,18 @@ export const firebaseService = {
 
     const docRef = doc(db, collectionName, id);
     try {
+      const snap = await getDoc(docRef);
+      if (!snap.exists()) {
+        console.warn(`[Firebase] Document ${collectionName}/${id} does not exist. Creating it using setDoc with merge: true.`);
+        await setDoc(docRef, cleanData({
+          ...data,
+          id,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }), { merge: true });
+        firebaseService.notifyCollectionChange(collectionName);
+        return;
+      }
       await updateDoc(docRef, cleanData({
         ...data,
         updatedAt: new Date()
@@ -443,7 +455,7 @@ export const firebaseService = {
     });
   },
 
-  listenCollection(collectionName: string, callback: (data: any[]) => void, constraints: QueryConstraint[] = []) {
+  listenCollection(collectionName: string, callback: (data: any[]) => void, constraints: QueryConstraint[] = [], overrideOwnerId?: string | 'all') {
     const { uid, authenticated } = getEffectiveUserInfo();
     const isGlobal = ['system', 'announcements', 'activationCodes', 'test_connection'].includes(collectionName);
     
@@ -454,7 +466,10 @@ export const firebaseService = {
 
     const queryConstraints = [...constraints];
     if (!isGlobal) {
-      queryConstraints.push(where('ownerId', '==', uid));
+      const targetOwnerId = overrideOwnerId !== undefined ? overrideOwnerId : uid;
+      if (targetOwnerId !== 'all') {
+        queryConstraints.push(where('ownerId', '==', targetOwnerId));
+      }
     }
 
     const q = query(
@@ -494,7 +509,7 @@ export const firebaseService = {
     });
   },
   
-  async queryDocuments(collectionName: string, filters: { field: string, operator: any, value: any }[] = []) {
+  async queryDocuments(collectionName: string, filters: { field: string, operator: any, value: any }[] = [], overrideOwnerId?: string | 'all') {
     const { uid, authenticated } = getEffectiveUserInfo();
     const isGlobal = ['system', 'announcements', 'activationCodes', 'test_connection'].includes(collectionName);
     
@@ -504,7 +519,10 @@ export const firebaseService = {
       const constraints = filters.map(f => where(f.field, f.operator, f.value));
       const queryConstraints = [...constraints];
       if (!isGlobal) {
-        queryConstraints.push(where('ownerId', '==', uid));
+        const targetOwnerId = overrideOwnerId !== undefined ? overrideOwnerId : uid;
+        if (targetOwnerId !== 'all') {
+          queryConstraints.push(where('ownerId', '==', targetOwnerId));
+        }
       }
 
       const q = query(

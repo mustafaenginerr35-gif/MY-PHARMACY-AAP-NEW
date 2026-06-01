@@ -77,6 +77,7 @@ import {
   Table as TableIcon,
   Database,
   Layers,
+  Wrench,
   CalendarClock,
   ShieldAlert,
   Mail,
@@ -759,7 +760,7 @@ export default function App() {
   }, [currentBranchId]);
 
   const [entitySearch, setEntitySearch] = useState('');
-  const [entityStatusFilter, setEntityStatusFilter] = useState<'active' | 'archived' | 'all'>('active');
+  const [entityTypeFilter, setEntityTypeFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [globalSearch, setGlobalSearch] = useState('');
 
@@ -768,14 +769,67 @@ export default function App() {
   const [reportDetailTitle, setReportDetailTitle] = useState('');
   const [reportDetailData, setReportDetailData] = useState<any[]>([]);
 
+  // Admin Selective Owner Bypass State
+  const [adminSelectedOwnerId, setAdminSelectedOwnerId] = useState<string | 'all'>(() => {
+    return localStorage.getItem('pharma-admin-selected-owner-id') || 'all';
+  });
+  const [adminUsersList, setAdminUsersList] = useState<any[]>([]);
+
+  const isAdmin = useMemo(() => {
+    return appUser?.role === 'admin' || appUser?.role === 'super_admin';
+  }, [appUser?.role]);
+
+  // Sync admin selection to localStorage
+  useEffect(() => {
+    if (isAdmin && adminSelectedOwnerId) {
+      localStorage.setItem('pharma-admin-selected-owner-id', adminSelectedOwnerId);
+    } else {
+      localStorage.removeItem('pharma-admin-selected-owner-id');
+    }
+  }, [adminSelectedOwnerId, isAdmin]);
+
+  // Fetch system users for switcher
+  useEffect(() => {
+    if (isAdmin) {
+      getDocs(collection(db, 'appUsers')).then(snap => {
+        const list = snap.docs.map(doc => ({
+          userId: doc.id,
+          ...doc.data()
+        }));
+        setAdminUsersList(list);
+      }).catch(err => {
+        console.error("Error fetching system users for admin dashboard selector:", err);
+      });
+    }
+  }, [isAdmin]);
+
+  const currentEffectiveOwnerId = useMemo(() => {
+    if (isAdmin) {
+      return adminSelectedOwnerId;
+    }
+    return appUser?.userId || getEffectiveUserInfo().uid || 'demo-user';
+  }, [appUser?.userId, adminSelectedOwnerId, isAdmin]);
+
   // Queries
   const ownerQuery = useMemo(() => {
+    if (isAdmin) {
+      if (adminSelectedOwnerId === 'all') {
+        return [];
+      }
+      return [where('ownerId', '==', adminSelectedOwnerId)];
+    }
     const activeUid = appUser?.userId || getEffectiveUserInfo().uid || 'demo-user';
     return [where('ownerId', '==', activeUid)];
-  }, [appUser?.userId]);
+  }, [appUser?.userId, adminSelectedOwnerId, isAdmin]);
+
   const branchesQuery = useMemo(() => ownerQuery, [ownerQuery]);
   const transactionsQuery = useMemo(() => ownerQuery, [ownerQuery]);
-  const entitiesQuery = useMemo(() => ownerQuery, [ownerQuery]);
+  const entitiesQuery = useMemo(() => {
+    if (appUser?.role === 'super_admin') {
+      return [];
+    }
+    return ownerQuery;
+  }, [ownerQuery, appUser?.role]);
   const customerDebtsQuery = useMemo(() => ownerQuery, [ownerQuery]);
   const notificationsQuery = useMemo(() => ownerQuery, [ownerQuery]);
   const bonusesQuery = useMemo(() => ownerQuery, [ownerQuery]);
@@ -785,26 +839,26 @@ export default function App() {
   const historicalQuery = useMemo(() => ownerQuery, [ownerQuery]);
   const entityActivitiesQuery = useMemo(() => ownerQuery, [ownerQuery]);
 
-  // Firebase Real-time Queries
-  const { data: expiredDamagedLosses = [], loading: loadingLosses } = useFirebaseQuery<ExpiredDamagedLoss>('expiredDamagedLosses', ownerQuery);
-  const { data: rawBranches = [], loading: loadingBranches } = useFirebaseQuery<PharmacyBranch>('branches', branchesQuery);
-  const { data: rawTransactions = [], loading: loadingTransactions } = useFirebaseQuery<Transaction>('transactions', transactionsQuery);
-  const { data: rawEntities = [], loading: loadingEntities } = useFirebaseQuery<Entity>('entities', entitiesQuery);
-  const { data: rawCustomerDebts = [], loading: loadingDebts } = useFirebaseQuery<CustomerDebt>('customerDebts', customerDebtsQuery);
-  const { data: rawNotifications = [], loading: loadingNotifications } = useFirebaseQuery<Notification>('notifications', notificationsQuery);
-  const { data: rawBonuses = [], loading: loadingBonuses } = useFirebaseQuery<Bonus>('bonuses', bonusesQuery);
-  const { data: rawEmployees = [], loading: loadingEmployees } = useFirebaseQuery<Employee>('employees', employeesQuery);
-  const { data: rawEmployeeAttendance = [], loading: loadingAttendance } = useFirebaseQuery<EmployeeAttendance>('employeeAttendance', attendanceQuery);
-  const { data: rawAllLedgerEntries = [], loading: loadingLedger } = useFirebaseQuery<LedgerEntry>('ledgerEntries', ledgerEntriesQuery);
-  const { data: rawHistoricalRecords = [], loading: loadingHistorical } = useFirebaseQuery<HistoricalRecord>('historicalRecords', historicalQuery);
-  const { data: rawEntityActivities = [], loading: loadingActivities } = useFirebaseQuery<EntityActivity>('entityActivities', entityActivitiesQuery);
-  const { data: rawOpeningCash = [], loading: loadingOpeningCash } = useFirebaseQuery<OpeningCash>('openingCash', ownerQuery);
-  const { data: rawLoans = [], loading: loadingLoans } = useFirebaseQuery<Loan>('loans', ownerQuery);
-  const { data: rawSupplierOpeningBalances = [], loading: loadingSupplierOpening } = useFirebaseQuery<SupplierOpeningBalance>('supplierOpeningBalances', ownerQuery);
-  const { data: deadlines = [], loading: loadingDeadlines } = useFirebaseQuery<Deadline>('deadlines', ownerQuery);
+  // Firebase Real-time Queries with Owner Override Supports
+  const { data: expiredDamagedLosses = [], loading: loadingLosses } = useFirebaseQuery<ExpiredDamagedLoss>('expiredDamagedLosses', ownerQuery, currentEffectiveOwnerId);
+  const { data: rawBranches = [], loading: loadingBranches } = useFirebaseQuery<PharmacyBranch>('branches', branchesQuery, currentEffectiveOwnerId);
+  const { data: rawTransactions = [], loading: loadingTransactions } = useFirebaseQuery<Transaction>('transactions', transactionsQuery, currentEffectiveOwnerId);
+  const { data: rawEntities = [], loading: loadingEntities } = useFirebaseQuery<Entity>('entities', entitiesQuery, appUser?.role === 'super_admin' ? 'all' : currentEffectiveOwnerId);
+  const { data: rawCustomerDebts = [], loading: loadingDebts } = useFirebaseQuery<CustomerDebt>('customerDebts', customerDebtsQuery, currentEffectiveOwnerId);
+  const { data: rawNotifications = [], loading: loadingNotifications } = useFirebaseQuery<Notification>('notifications', notificationsQuery, currentEffectiveOwnerId);
+  const { data: rawBonuses = [], loading: loadingBonuses } = useFirebaseQuery<Bonus>('bonuses', bonusesQuery, currentEffectiveOwnerId);
+  const { data: rawEmployees = [], loading: loadingEmployees } = useFirebaseQuery<Employee>('employees', employeesQuery, currentEffectiveOwnerId);
+  const { data: rawEmployeeAttendance = [], loading: loadingAttendance } = useFirebaseQuery<EmployeeAttendance>('employeeAttendance', attendanceQuery, currentEffectiveOwnerId);
+  const { data: rawAllLedgerEntries = [], loading: loadingLedger } = useFirebaseQuery<LedgerEntry>('ledgerEntries', ledgerEntriesQuery, currentEffectiveOwnerId);
+  const { data: rawHistoricalRecords = [], loading: loadingHistorical } = useFirebaseQuery<HistoricalRecord>('historicalRecords', historicalQuery, currentEffectiveOwnerId);
+  const { data: rawEntityActivities = [], loading: loadingActivities } = useFirebaseQuery<EntityActivity>('entityActivities', entityActivitiesQuery, currentEffectiveOwnerId);
+  const { data: rawOpeningCash = [], loading: loadingOpeningCash } = useFirebaseQuery<OpeningCash>('openingCash', ownerQuery, currentEffectiveOwnerId);
+  const { data: rawLoans = [], loading: loadingLoans } = useFirebaseQuery<Loan>('loans', ownerQuery, currentEffectiveOwnerId);
+  const { data: rawSupplierOpeningBalances = [], loading: loadingSupplierOpening } = useFirebaseQuery<SupplierOpeningBalance>('supplierOpeningBalances', ownerQuery, currentEffectiveOwnerId);
+  const { data: deadlines = [], loading: loadingDeadlines } = useFirebaseQuery<Deadline>('deadlines', ownerQuery, currentEffectiveOwnerId);
   const { data: activationCodes = [] } = useFirebaseQuery<ActivationCode>('activationCodes');
-  const { data: activationRequests = [] } = useFirebaseQuery<ActivationRequest>('activationRequests', ownerQuery);
-  const { data: recoveryRequests = [] } = useFirebaseQuery<RecoveryRequest>('recoveryRequests', ownerQuery);
+  const { data: activationRequests = [] } = useFirebaseQuery<ActivationRequest>('activationRequests', ownerQuery, currentEffectiveOwnerId);
+  const { data: recoveryRequests = [] } = useFirebaseQuery<RecoveryRequest>('recoveryRequests', ownerQuery, currentEffectiveOwnerId);
   
   const [remoteConfig, setRemoteConfig] = useState<SystemConfig | null>(null);
   const [loadingRemoteConfig, setLoadingRemoteConfig] = useState(true);
@@ -1052,11 +1106,9 @@ export default function App() {
   const filteredEntities = useMemo(() => {
     let filtered = [...entities];
     
-    // Status Filter
-    if (entityStatusFilter === 'active') {
-      filtered = filtered.filter(e => (!e.status || e.status === 'نشط') && !e.deletedAt);
-    } else if (entityStatusFilter === 'archived') {
-      filtered = filtered.filter(e => e.status === 'مؤرشف' && !e.deletedAt);
+    // Type Filter
+    if (entityTypeFilter && entityTypeFilter !== 'all') {
+      filtered = filtered.filter(e => e.type === entityTypeFilter && !e.deletedAt);
     } else {
       filtered = filtered.filter(e => !e.deletedAt);
     }
@@ -1072,7 +1124,58 @@ export default function App() {
     }
 
     return filtered;
-  }, [entities, entityStatusFilter, entitySearch]);
+  }, [entities, entityTypeFilter, entitySearch]);
+
+  const hasDemoEntities = useMemo(() => {
+    return appUser?.role === 'super_admin' && rawEntities.some(e => e.ownerId === 'demo-user');
+  }, [appUser?.role, rawEntities]);
+
+  const [isMigratingDemo, setIsMigratingDemo] = useState(false);
+  const handleMigrateDemoFromBanner = async () => {
+    const targetUserId = appUser?.userId || auth.currentUser?.uid;
+    if (!targetUserId) {
+      toast.error('لم يتم تحديد هوية المستخدم الحالي للترحيل إليه!');
+      return;
+    }
+    
+    setIsMigratingDemo(true);
+    toast.loading('جاري ترحيل كافة سجلات demo-user إلى حسابك حالياً...', { id: 'migration-toast' });
+    
+    try {
+      const collections = [
+        'entities', 'ledgerEntries', 'transactions', 'entityActivities',
+        'branches', 'customerDebts', 'notifications', 'bonuses',
+        'employees', 'employeeAttendance', 'openingCash', 'loans',
+        'supplierOpeningBalances', 'deadlines', 'activationRequests',
+        'recoveryRequests', 'expiredDamagedLosses', 'medicineRequests'
+      ];
+      
+      let migratedCount = 0;
+      for (const col of collections) {
+        const q = query(collection(db, col), where('ownerId', '==', 'demo-user'));
+        const snap = await getDocs(q);
+        
+        for (const docSnap of snap.docs) {
+          const docRef = doc(db, col, docSnap.id);
+          const updateData: any = { ownerId: targetUserId };
+          
+          if (docSnap.data().userId === 'demo-user') {
+            updateData.userId = targetUserId;
+          }
+          await updateDoc(docRef, updateData);
+          migratedCount++;
+        }
+      }
+      
+      toast.success(`اكتمل الترحيل بنجاح! تم ترحيل ${migratedCount} مستند وربطهم بحسابك السحابي بنجاح.`, { id: 'migration-toast' });
+    } catch (err: any) {
+      console.error("Banner migration error:", err);
+      toast.error('فشل الترحيل: ' + (err?.message || err), { id: 'migration-toast' });
+    } finally {
+      setIsMigratingDemo(false);
+    }
+  };
+
   const customerDebts = useMemo(() => {
     return [...rawCustomerDebts].sort((a, b) => {
       const da = toValidDate(a.createdAt || Date.now());
@@ -2369,7 +2472,7 @@ export default function App() {
   const handleAddEntity = async (data: any): Promise<string | void> => {
     console.log("[App] Adding entity starting...", data);
     
-    const activeUserId = appUser?.userId || getEffectiveUserInfo().uid;
+    const activeUserId = appUser?.userId || auth.currentUser?.uid || getEffectiveUserInfo().uid || 'demo-user';
     if (!activeUserId) {
       const authErr = 'عملية غير مسموحة: لم يتم التعرف على معرف المستخدم النشط (unauthorized/undefined activeUserId)';
       console.error("[App] handleAddEntity blocked:", authErr);
@@ -2534,8 +2637,8 @@ export default function App() {
             remainingAmount: newInitialBalance,
             date: new Date(),
             branchId: prevEntity.branchId || 'main',
-            userId: appUser?.userId || 'demo-user',
-            ownerId: appUser?.userId || 'demo-user',
+            userId: appUser?.userId || auth.currentUser?.uid || 'demo-user',
+            ownerId: appUser?.userId || auth.currentUser?.uid || 'demo-user',
             notes: 'رصيد افتتاحي (تمت إضافته لاحقاً)',
             createdAt: new Date(),
             updatedAt: new Date()
@@ -6371,6 +6474,77 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2 md:gap-4 shrink-0">
+            {isAdmin && (
+              <div className="hidden lg:flex flex-col items-start gap-1 bg-amber-500/5 px-3 py-1.5 rounded-2xl border border-amber-500/15">
+                <span className="text-[10px] text-amber-500 font-black tracking-widest uppercase flex items-center gap-1">
+                  <Wrench className="h-3 w-3 animate-pulse" /> نطاق المالك (Admin)
+                </span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger className="flex items-center gap-2 group outline-none">
+                    <Database className="h-4 w-4 text-amber-500" />
+                    <span className="text-sm font-black text-amber-500 hover:text-amber-600 transition-colors">
+                      {adminSelectedOwnerId === 'all' 
+                        ? 'عرض جميع الملاك (قراءة شاملة)' 
+                        : adminSelectedOwnerId === 'demo-user'
+                        ? 'demo-user (مستخدم تجريبي)'
+                        : adminUsersList.find(u => u.userId === adminSelectedOwnerId)?.fullName || adminSelectedOwnerId}
+                    </span>
+                    <ChevronDown className="h-3 w-3 text-amber-500 group-hover:text-amber-600 transition-all" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="bg-card border-border text-foreground w-72 p-2 rounded-xl shadow-2xl z-50">
+                    <DropdownMenuItem 
+                      className={`p-3 cursor-pointer rounded-lg gap-3 ${adminSelectedOwnerId === 'all' ? 'bg-amber-500/10 text-amber-500' : 'hover:bg-muted'}`}
+                      onClick={() => {
+                        setAdminSelectedOwnerId('all');
+                        toast.success('تم التبديل بنجاح إلى عرض شامل لكافة ملاك السحاب');
+                      }}
+                    >
+                      <Database className="h-4 w-4" />
+                      <div className="flex flex-col text-right">
+                        <span className="font-black text-sm text-foreground">عرض جميع الملاك</span>
+                        <span className="text-[10px] font-bold text-muted-foreground">قراءة كافة مستندات جميع الصيدليات</span>
+                      </div>
+                    </DropdownMenuItem>
+                    
+                    <DropdownMenuItem 
+                      className={`p-3 cursor-pointer rounded-lg gap-3 ${adminSelectedOwnerId === 'demo-user' ? 'bg-amber-500/10 text-amber-500' : 'hover:bg-muted'}`}
+                      onClick={() => {
+                        setAdminSelectedOwnerId('demo-user');
+                        toast.success('تم التبديل إلى نطاق المستخدم التجريبي demo-user');
+                      }}
+                    >
+                      <Database className="h-4 w-4" />
+                      <div className="flex flex-col text-right">
+                        <span className="font-bold text-sm text-foreground">demo-user (مستخدم تجريبي)</span>
+                        <span className="text-[10px] font-bold text-muted-foreground">تصفح وفحص بيانات البيئة التجريبية</span>
+                      </div>
+                    </DropdownMenuItem>
+                    
+                    <DropdownMenuSeparator className="bg-border" />
+                    <DropdownMenuGroup className="max-h-[220px] overflow-y-auto">
+                      <DropdownMenuLabel className="text-[10px] font-black text-muted-foreground px-3 py-2 uppercase">العملاء والشركاء المسجلين</DropdownMenuLabel>
+                      {adminUsersList.map(u => (
+                        <DropdownMenuItem 
+                          key={u.userId}
+                          className={`p-3 cursor-pointer rounded-lg gap-3 ${adminSelectedOwnerId === u.userId ? 'bg-amber-500/10 text-amber-500' : 'hover:bg-muted'}`}
+                          onClick={() => {
+                            setAdminSelectedOwnerId(u.userId);
+                            toast.success(`تم التكبير والتركيز على صيدلية العميل: ${u.fullName}`);
+                          }}
+                        >
+                          <Building2 className="h-4 w-4 text-violet-500" />
+                          <div className="flex flex-col text-right">
+                            <span className="font-bold text-sm text-foreground">{u.fullName || u.customerName}</span>
+                            <span className="text-[10px] text-muted-foreground truncate max-w-[200px]">{u.email || u.phone || u.userId}</span>
+                          </div>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            )}
+
             <div className="hidden lg:flex flex-col items-start gap-1">
               <span className="text-[10px] text-muted-foreground font-bold tracking-widest uppercase">مكان العمل الحالي</span>
               <DropdownMenu>
@@ -7430,6 +7604,28 @@ export default function App() {
               />
             ) : (
               <>
+                {hasDemoEntities && (
+                  <div className="bg-amber-500/10 border border-amber-500/20 text-right p-5 rounded-2xl mb-6 relative overflow-hidden flex flex-col md:flex-row justify-between items-center gap-4 animate-fade-in" dir="rtl">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 blur-3xl -mr-16 -mt-16" />
+                    <div className="space-y-1 relative z-10 flex items-center gap-3">
+                      <Wrench className="h-6 w-6 text-amber-500 shrink-0" />
+                      <div>
+                        <h4 className="text-sm font-black text-amber-500">تم رصد بيانات تجريبية (demo-user) في قاعدة البيانات الموزعة!</h4>
+                        <p className="text-xs text-muted-foreground font-sans">
+                          هناك فروع وموردين ومعاملات تنتمي للمستخدم التجريبي، اضغط على زر ترحيل البيانات أدناه لربطها بالكامل بحسابك الحالي في غضون ثوانٍ.
+                        </p>
+                      </div>
+                    </div>
+                    <Button 
+                      disabled={isMigratingDemo}
+                      onClick={handleMigrateDemoFromBanner}
+                      className="bg-amber-500 hover:bg-amber-600 text-black font-black text-xs px-5 h-11 rounded-xl shrink-0 z-10 shadow-lg shadow-amber-500/10"
+                    >
+                      {isMigratingDemo ? 'جاري ترحيل البيانات...' : 'ترحيل بيانات demo-user وحفظها لحسابي الآن'}
+                    </Button>
+                  </div>
+                )}
+
                 <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
                   <div>
                     <h2 className="text-2xl font-black text-foreground">إدارة الموردين والمذاخر</h2>
@@ -7445,14 +7641,18 @@ export default function App() {
                         className="bg-card border-border pr-10 rounded-xl h-11"
                       />
                     </div>
-                    <Select value={entityStatusFilter} onValueChange={(v: any) => setEntityStatusFilter(v)}>
+                    <Select value={entityTypeFilter} onValueChange={(v: any) => setEntityTypeFilter(v)}>
                        <SelectTrigger className="w-[140px] h-11 rounded-xl bg-card border-border font-bold">
-                          <SelectValue />
+                          <SelectValue placeholder="التصنيف" />
                        </SelectTrigger>
                        <SelectContent className="bg-card border-border">
-                          <SelectItem value="active">النشطون</SelectItem>
-                          <SelectItem value="archived">المؤرشفون</SelectItem>
-                          <SelectItem value="all">كل الموردين</SelectItem>
+                          <SelectItem value="all">كل التصنيفات</SelectItem>
+                          <SelectItem value="office">مكاتب أدوية</SelectItem>
+                          <SelectItem value="warehouse">مذاخر علمية</SelectItem>
+                          <SelectItem value="supplier">موردين</SelectItem>
+                          <SelectItem value="company">شركات</SelectItem>
+                          <SelectItem value="vendor">موردين عامين</SelectItem>
+                          <SelectItem value="other">أخرى</SelectItem>
                        </SelectContent>
                     </Select>
                     <Button onClick={() => setIsAddEntityOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 gap-2 h-11 px-6 text-white shadow-lg shadow-emerald-500/20 rounded-xl font-black">
@@ -7541,7 +7741,7 @@ export default function App() {
                          <Users className="h-12 w-12 opacity-20" />
                        </div>
                        <p className="font-black text-lg text-foreground/50">لا يوجد موردين مطابقة للفلاتر</p>
-                       {entityStatusFilter !== 'all' && <p className="text-sm font-bold mt-2">جرب تغيير حالة الفلتر أو البحث</p>}
+                       {entityTypeFilter !== 'all' && <p className="text-sm font-bold mt-2">جرب تغيير حالة الفلتر أو البحث</p>}
                        <Button onClick={() => setIsAddEntityOpen(true)} className="mt-8 bg-primary hover:bg-primary/90 h-11 px-8 rounded-xl font-black">
                           إضافة مورد جديد
                        </Button>
@@ -8206,7 +8406,7 @@ export default function App() {
             </TabsContent>
 
             <TabsContent value="admin-panel" className="animate-in fade-in slide-in-from-left-4 duration-500 pb-20 md:pb-0">
-               {appUser?.role === 'admin' || appUser?.role === 'super_admin' ? <AdminPanel /> : <div className="py-24 text-center text-muted-foreground font-black">عذراً، هذه الصفحة حصرية لمدير النظام الرئيسي.</div>}
+               {appUser?.role === 'admin' || appUser?.role === 'super_admin' ? <AdminPanel currentUserId={appUser?.userId || user?.uid || undefined} /> : <div className="py-24 text-center text-muted-foreground font-black">عذراً، هذه الصفحة حصرية لمدير النظام الرئيسي.</div>}
             </TabsContent>
 
             <TabsContent value="sales-console" className="animate-in fade-in slide-in-from-left-4 duration-500 pb-20 md:pb-0">

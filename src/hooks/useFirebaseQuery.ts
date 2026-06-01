@@ -6,7 +6,7 @@ import { QueryConstraint } from 'firebase/firestore';
 
 const DEFAULT_CONSTRAINTS: QueryConstraint[] = [];
 
-export function useFirebaseQuery<T>(collectionName: string, constraints: QueryConstraint[] = DEFAULT_CONSTRAINTS) {
+export function useFirebaseQuery<T>(collectionName: string, constraints: QueryConstraint[] = DEFAULT_CONSTRAINTS, overrideOwnerId?: string | 'all') {
   const [data, setData] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(auth.currentUser);
@@ -29,7 +29,7 @@ export function useFirebaseQuery<T>(collectionName: string, constraints: QueryCo
       return;
     }
 
-    console.log(`[useFirebaseQuery] Subscribed to "${collectionName}" (trigger: ${refreshTrigger})`, { isPublicCollection, hasUser: !!user });
+    console.log(`[useFirebaseQuery] Subscribed to "${collectionName}" (trigger: ${refreshTrigger}, ownerOverride: ${overrideOwnerId})`, { isPublicCollection, hasUser: !!user });
     const unsubscribe = firebaseService.listenCollection(
       collectionName, 
       (newData) => {
@@ -40,11 +40,12 @@ export function useFirebaseQuery<T>(collectionName: string, constraints: QueryCo
         setData(newData);
         setLoading(false);
       },
-      constraints
+      constraints,
+      overrideOwnerId
     );
 
     return () => unsubscribe();
-  }, [collectionName, user, isLocallyAuth, constraints, refreshTrigger]);
+  }, [collectionName, user, isLocallyAuth, constraints, refreshTrigger, overrideOwnerId]);
 
   useEffect(() => {
     const unsubscribe = (firebaseService as any).onCollectionChange?.((changedCollectionName: string) => {

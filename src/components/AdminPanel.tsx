@@ -32,7 +32,8 @@ import {
   KeyRound,
   Trash2,
   Copy,
-  Wrench
+  Wrench,
+  Database
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { hashPassword } from '../services/customAuthService';
@@ -65,14 +66,132 @@ interface SaaSUser {
   customerEmail?: string;
 }
 
-export function AdminPanel() {
-  const [activeTab, setActiveTab] = useState<'users' | 'keys' | 'licenses'>('users');
+export function AdminPanel({ currentUserId }: { currentUserId?: string }) {
+  const [activeTab, setActiveTab] = useState<'users' | 'keys' | 'licenses' | 'tools'>('users');
   const [users, setUsers] = useState<SaaSUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPlanFilter, setSelectedPlanFilter] = useState<string>('all');
   const [selectedUser, setSelectedUser] = useState<SaaSUser | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  
+  // Migration Tools state
+  const [migrationState, setMigrationState] = useState<{
+    scanning: boolean;
+    migrating: boolean;
+    scanned: boolean;
+    counts: Record<string, number>;
+    status: Record<string, 'idle' | 'loading' | 'success' | 'failed'>;
+  }>({
+    scanning: false,
+    migrating: false,
+    scanned: false,
+    counts: {},
+    status: {}
+  });
+
+  const collectionsToMigrate = [
+    { id: 'entities', name: 'الموردين والحسابات المالية' },
+    { id: 'ledgerEntries', name: 'سجلات الأستاذ الموحد' },
+    { id: 'transactions', name: 'العمليات والفواتير المالية' },
+    { id: 'entityActivities', name: 'سجلات النشاطات والمراجعة' },
+    { id: 'branches', name: 'الصيدليات والفروع المعرفة' },
+    { id: 'customerDebts', name: 'ديون ومستحقات العملاء' },
+    { id: 'notifications', name: 'التنبيهات والبريد الداخلي' },
+    { id: 'bonuses', name: 'سحوبات البونص المجاني' },
+    { id: 'employees', name: 'الموظفين وملاك الكوادر' },
+    { id: 'employeeAttendance', name: 'سجلات حضور الموظفين' },
+    { id: 'openingCash', name: 'سجلات الصندوق والافتتاحيات' },
+    { id: 'loans', name: 'سجلات السلف والقروض' },
+    { id: 'supplierOpeningBalances', name: 'الأرصدة الافتتاحية للموردين' },
+    { id: 'deadlines', name: 'مواعيد الاستحقاق والسداد' },
+    { id: 'activationRequests', name: 'طلبات تفعيل التراخيص' },
+    { id: 'recoveryRequests', name: 'طلبات استعادة الحسابات' },
+    { id: 'expiredDamagedLosses', name: 'توالف ومسترجعات الأدوية' },
+    { id: 'medicineRequests', name: 'طلبات توفير الأدوية النادرة' }
+  ];
+
+  const handleScanDemoData = async () => {
+    setMigrationState(prev => ({ ...prev, scanning: true, scanned: false }));
+    const countsMap: Record<string, number> = {};
+    const statusMap: Record<string, 'idle' | 'loading' | 'success' | 'failed'> = {};
+
+    try {
+      for (const col of collectionsToMigrate) {
+        statusMap[col.id] = 'loading';
+        const q = query(collection(db, col.id), where('ownerId', '==', 'demo-user'));
+        const snap = await getDocs(q);
+        countsMap[col.id] = snap.size;
+        statusMap[col.id] = 'idle';
+      }
+      setMigrationState({
+        scanning: false,
+        migrating: false,
+        scanned: true,
+        counts: countsMap,
+        status: statusMap
+      });
+      toast.success('اكتمل فحص البيانات بنجاح! تم العثور على سجلات تابعة للمستخدم التجريبي.');
+    } catch (err: any) {
+      console.error("Migration scan error:", err);
+      toast.error('حدث خطأ أثناء فحص البيانات: ' + (err?.message || err));
+      setMigrationState(prev => ({ ...prev, scanning: false }));
+    }
+  };
+
+  const handleMigrateDemoData = async () => {
+    if (!currentUserId) {
+      toast.error('لم يتم تحديد هوية المستخدم الحالي للترحيل إليه!');
+      return;
+    }
+
+    setMigrationState(prev => ({ ...prev, migrating: true }));
+    const statusMap = { ...migrationState.status };
+
+    try {
+      for (const col of collectionsToMigrate) {
+        const count = migrationState.counts[col.id] || 0;
+        if (count === 0) {
+          statusMap[col.id] = 'success';
+          continue;
+        }
+
+        statusMap[col.id] = 'loading';
+        setMigrationState(prev => ({ ...prev, status: { ...statusMap } }));
+
+        const q = query(collection(db, col.id), where('ownerId', '==', 'demo-user'));
+        const snap = await getDocs(q);
+
+        for (const docSnap of snap.docs) {
+          const docRef = doc(db, col.id, docSnap.id);
+          const updateData: any = { ownerId: currentUserId };
+          
+          const docData = docSnap.data();
+          if (docData.userId === 'demo-user') {
+            updateData.userId = currentUserId;
+          }
+
+          await updateDoc(docRef, updateData);
+        }
+
+        statusMap[col.id] = 'success';
+        setMigrationState(prev => ({ ...prev, status: { ...statusMap } }));
+      }
+
+      toast.success('مبروك! تم ترحيل كافة البيانات من demo-user إلى حسابك الحالي بنجاح.');
+      
+      setMigrationState(prev => ({
+        ...prev,
+        migrating: false,
+        counts: Object.fromEntries(collectionsToMigrate.map(c => [c.id, 0])),
+        status: Object.fromEntries(collectionsToMigrate.map(c => [c.id, 'success']))
+      }));
+    } catch (err: any) {
+      console.error("Migration execution error:", err);
+      toast.error('فشل ترحيل بعض الجداول: ' + (err?.message || err));
+      setMigrationState(prev => ({ ...prev, migrating: false }));
+    }
+  };
   
   // New User custom form states for manual registration helper
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -1551,6 +1670,18 @@ export function AdminPanel() {
             <span>محرك ومدرّج التراخيص الفعالة ({licenses.length})</span>
           </div>
         </button>
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab('tools');
+          }}
+          className={`px-5 py-3 border-b-2 text-sm font-black transition-all ${activeTab === 'tools' ? 'border-primary text-primary font-boldScale' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+        >
+          <div className="flex items-center gap-2 border-r border-border/80 pr-4">
+            <Wrench className="h-4 w-4 text-amber-500 font-bold" />
+            <span>أدوات الصيانة وترحيل البيانات</span>
+          </div>
+        </button>
       </div>
 
       {activeTab === 'users' ? (
@@ -1970,7 +2101,7 @@ export function AdminPanel() {
             </div>
           </div>
         </div>
-      ) : (
+      ) : activeTab === 'licenses' ? (
         <div className="space-y-6 animate-fade-in" dir="rtl">
           {/* Licenses Bento counters */}
           <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
@@ -2272,6 +2403,125 @@ export function AdminPanel() {
                 </div>
               );
             })()}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-6 animate-fade-in text-right font-sans" dir="rtl">
+          <div className="bg-card border border-border p-6 rounded-3xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 blur-3xl -mr-16 -mt-16" />
+            <div className="space-y-1 relative z-10">
+              <span className="px-2.5 py-1 text-[10px] bg-amber-500/15 text-amber-500 rounded-lg font-black uppercase tracking-wider flex items-center gap-1 w-fit">
+                <Wrench className="w-3.5 h-3.5 animate-spin" /> مركز صيانة وترحيل البيانات السحابية
+              </span>
+              <h3 className="text-lg font-black text-foreground">ترحيل بيانات المستخدم التجريبي (demo-user)</h3>
+              <p className="text-muted-foreground text-xs font-sans leading-relaxed max-w-2xl">
+                هذه الأداة مخصصة لنقل وربط كافة الفروع، الموردين، المعاملات، الفواتير، وحسابات الديون التاريخية التابعة للحساب التجريبي <code className="font-mono text-amber-500 px-1.5 py-0.5 bg-muted rounded">demo-user</code> بالحساب السحابي الموثق والمسجل حالياً (<span className="text-primary font-bold">{currentUserId || 'غير معروف / لم يسجل'}</span>).
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Control Panel Card */}
+            <div className="bg-card border border-border rounded-3xl p-6 space-y-6 self-start">
+              <h4 className="text-sm font-black text-foreground flex items-center gap-2 border-b border-border pb-3">
+                <Database className="h-4 w-4 text-amber-500" />
+                خيارات الترحيل والتحكم
+              </h4>
+              
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  الرجاء فحص السجلات المعلقة أولاً لمعرفة عدد المستندات المتاحة للترحيل من المستخدم التجريبي القديم.
+                </p>
+
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    disabled={migrationState.scanning || migrationState.migrating}
+                    onClick={handleScanDemoData}
+                    className="w-full h-11 bg-muted hover:bg-muted/80 text-foreground border border-border rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {migrationState.scanning ? (
+                      <RotateCw className="h-4 w-4 animate-spin text-amber-500" />
+                    ) : (
+                      <Search className="h-4 w-4 text-amber-500" />
+                    )}
+                    {migrationState.scanning ? 'جاري فحص السجلات...' : 'الخطوة 1: فحص البيانات المتاحة'}
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={!migrationState.scanned || migrationState.migrating || migrationState.scanning || !currentUserId}
+                    onClick={handleMigrateDemoData}
+                    className="w-full h-11 bg-amber-500 hover:bg-amber-600 text-black rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 shadow-lg shadow-amber-500/15 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {migrationState.migrating ? (
+                      <RotateCw className="h-4 w-4 animate-spin text-black" />
+                    ) : (
+                      <CheckCircle className="h-4 w-4 text-black" />
+                    )}
+                    {migrationState.migrating ? 'جاري الترحيل الآن...' : 'الخطوة 2: بدء الترحيل الشامل'}
+                  </button>
+                </div>
+
+                {!currentUserId && (
+                  <div className="bg-red-500/5 p-3 rounded-xl border border-red-500/10 text-[11px] text-red-500 font-bold">
+                    * يجب تسجيل الدخول بحساب موثق لتتمكن من ترحيل البيانات إليه.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Collections Status List Card */}
+            <div className="lg:col-span-2 bg-card border border-border rounded-3xl overflow-hidden flex flex-col">
+              <div className="p-4 bg-muted/30 border-b border-border flex justify-between items-center">
+                <span className="text-xs font-black text-foreground">جدول الجداول السحابية والمستندات القابلة للترحيل</span>
+                <span className="text-[10px] bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded-lg font-bold">حالة المزامنة</span>
+              </div>
+
+              <div className="divide-y divide-border/60 max-h-[500px] overflow-y-auto">
+                {!migrationState.scanned && !migrationState.scanning ? (
+                  <div className="py-24 text-center text-muted-foreground space-y-2">
+                    <Database className="h-10 w-10 text-muted-foreground opacity-30 mx-auto" />
+                    <p className="text-sm font-bold">يرجى فحص المستندات لاستعراض الإحصائيات</p>
+                    <p className="text-xs">اضغط على زر (فحص البيانات المتاحة) على اليمين للبدء.</p>
+                  </div>
+                ) : (
+                  collectionsToMigrate.map(col => {
+                    const count = migrationState.counts[col.id] ?? 0;
+                    const status = migrationState.status[col.id] || 'idle';
+                    
+                    return (
+                      <div key={col.id} className="p-4 flex items-center justify-between text-xs hover:bg-muted/15 transition-all">
+                        <div className="space-y-1">
+                          <p className="font-black text-foreground">{col.name}</p>
+                          <p className="font-mono text-[10px] text-muted-foreground">Collection: {col.id}</p>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-black ${
+                            count > 0 ? 'bg-amber-500/10 text-amber-500' : 'bg-muted text-muted-foreground'
+                          }`}>
+                            {count} مستند معلق
+                          </span>
+
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-[10px] font-bold ${
+                            status === 'success' ? 'bg-emerald-500/15 text-emerald-500' :
+                            status === 'failed' ? 'bg-red-500/15 text-red-500' :
+                            status === 'loading' ? 'bg-blue-500/15 text-blue-500 animate-pulse' :
+                            'bg-muted text-muted-foreground'
+                          }`}>
+                            {status === 'success' ? 'اكتمل' :
+                             status === 'failed' ? 'فشل' :
+                             status === 'loading' ? 'جاري...' :
+                             'جاهز'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
