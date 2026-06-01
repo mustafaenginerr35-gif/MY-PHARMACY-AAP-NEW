@@ -1076,8 +1076,9 @@ export default function App() {
         return sum;
       }, 0);
       
-      // balance = debits - credits
-      const calculatedBalance = totalDebits - totalCredits;
+      // balance = initialBalance + debits - credits
+      const initBal = Number(entity.initialBalance) || 0;
+      const calculatedBalance = initBal + totalDebits - totalCredits;
       
       return {
         ...entity,
@@ -2482,6 +2483,7 @@ export default function App() {
 
     const defaultBranchId = currentBranchId || (branches.length > 0 ? branches[0].id : 'main');
     const initialBalance = Number(data.initialBalance) || 0;
+    console.log('Saving entity initialBalance:', initialBalance);
 
     let imageUrl = '';
     const imageUrls: string[] = [];

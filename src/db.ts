@@ -69,6 +69,7 @@ export interface Entity {
   lastInvoiceDate?: Date;
   totalPaidAmount?: number;
   initialBalancePaid?: number;
+  paymentsAppliedToOpeningBalance?: number;
   notes?: string;
   branchId?: string;
   ownerId: string;

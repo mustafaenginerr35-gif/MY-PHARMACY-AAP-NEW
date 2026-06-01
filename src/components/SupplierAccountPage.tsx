@@ -123,19 +123,22 @@ export const SupplierAccountPage = ({
     const sortedInvoices = [...invoices].sort((a, b) => toValidDate(b.date).getTime() - toValidDate(a.date).getTime());
     const sortedPayments = [...payments].sort((a, b) => toValidDate(b.date).getTime() - toValidDate(a.date).getTime());
 
-    const originalOpeningBalance = openingBalances.reduce((acc, op) => acc + (op.openingAmount || 0), 0);
-    const paidFromOpeningBalance = payments
-      .filter(p => p.paymentSource === 'opening_balance' || p.sourceType === 'supplier_opening_balance_payment' || p.sourceType === 'supplier_opening_payment')
-      .reduce((acc, p) => acc + (p.amount || 0), 0);
+    const originalOpeningBalance = Number(entity.initialBalance) || openingBalances.reduce((acc, op) => acc + (op.openingAmount || 0), 0);
+    const paymentsAppliedToOpeningBalance = entity.paymentsAppliedToOpeningBalance !== undefined 
+      ? entity.paymentsAppliedToOpeningBalance 
+      : (entity.initialBalancePaid || 0);
+    const paidFromOpeningBalance = paymentsAppliedToOpeningBalance;
     const remainingOpeningBalance = Math.max(0, originalOpeningBalance - paidFromOpeningBalance);
 
-    const totalRemainingInvoices = invoices.reduce((acc, i) => acc + Number(i.remainingAmount || 0), 0);
-    const totalCurrentDebt = remainingOpeningBalance + totalRemainingInvoices;
+    const totalInvoices = invoices.reduce((acc, i) => acc + Number(i.amount || i.netAmount || 0), 0);
+    const totalPayments = payments.reduce((acc, p) => acc + (p.amount || 0), 0);
+    const totalCurrentDebt = originalOpeningBalance + totalInvoices - totalPayments;
+    const totalRemainingInvoices = Math.max(0, totalCurrentDebt - remainingOpeningBalance);
 
     return {
-      totalPurchases: invoices.reduce((acc, i) => acc + Number(i.amount || i.netAmount || 0), 0) + originalOpeningBalance,
-      totalPayments: payments.reduce((acc, p) => acc + (p.amount || 0), 0),
-      openInvoices: invoices.filter(i => i.paymentStatus !== 'paid').length + openingBalances.filter(op => op.remainingAmount > 0).length,
+      totalPurchases: totalInvoices,
+      totalPayments: totalPayments,
+      openInvoices: invoices.filter(i => i.paymentStatus !== 'paid').length,
       overdueInvoices: invoices.filter(i => i.paymentStatus === 'overdue').length,
       pendingBonuses: bonuses.filter(b => b.status === 'pending').length,
       invoiceCount: invoices.length,
@@ -149,7 +152,7 @@ export const SupplierAccountPage = ({
       totalRemainingInvoices,
       totalCurrentDebt
     };
-  }, [ledgerEntries, bonuses, supplierOpeningBalances]);
+  }, [ledgerEntries, bonuses, supplierOpeningBalances, entity]);
 
   const historicalInvoices = useMemo(() => {
     return ledgerEntries.filter(e => e.operationType === 'invoice' && e.isHistorical === true);
