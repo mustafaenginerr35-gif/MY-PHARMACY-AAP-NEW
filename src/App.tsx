@@ -843,7 +843,7 @@ export default function App() {
   const { data: expiredDamagedLosses = [], loading: loadingLosses } = useFirebaseQuery<ExpiredDamagedLoss>('expiredDamagedLosses', ownerQuery, currentEffectiveOwnerId);
   const { data: rawBranches = [], loading: loadingBranches } = useFirebaseQuery<PharmacyBranch>('branches', branchesQuery, currentEffectiveOwnerId);
   const { data: rawTransactions = [], loading: loadingTransactions } = useFirebaseQuery<Transaction>('transactions', transactionsQuery, currentEffectiveOwnerId);
-  const { data: rawEntities = [], loading: loadingEntities } = useFirebaseQuery<Entity>('entities', entitiesQuery, appUser?.role === 'super_admin' ? 'all' : currentEffectiveOwnerId);
+  const { data: rawEntities = [], loading: loadingEntities, refetch: refetchEntities } = useFirebaseQuery<Entity>('entities', entitiesQuery, appUser?.role === 'super_admin' ? 'all' : currentEffectiveOwnerId);
   const { data: rawCustomerDebts = [], loading: loadingDebts } = useFirebaseQuery<CustomerDebt>('customerDebts', customerDebtsQuery, currentEffectiveOwnerId);
   const { data: rawNotifications = [], loading: loadingNotifications } = useFirebaseQuery<Notification>('notifications', notificationsQuery, currentEffectiveOwnerId);
   const { data: rawBonuses = [], loading: loadingBonuses } = useFirebaseQuery<Bonus>('bonuses', bonusesQuery, currentEffectiveOwnerId);
@@ -2523,17 +2523,39 @@ export default function App() {
     } as any;
     
     try {
-      console.log("[App] Saving entity to 'entities' collection directly:", newEntity);
-      const entityId = await firebaseService.addDocument('entities', newEntity as Entity);
+      console.log("[App] Instantiating doc(collection(db, 'entities')) directly...");
+      const entityColRef = collection(db, 'entities');
+      const entityDocRef = doc(entityColRef);
+      const entityId = entityDocRef.id;
+
+      const preparedEntityData = {
+        ...newEntity,
+        id: entityId
+      };
+
+      console.log("Saving entity to Firestore", preparedEntityData);
+      console.log("[App] Saving entity collection document directly:", preparedEntityData);
       
-      if (!entityId) {
-        throw new Error('فشلت عملية إنشاء document المورد في Firestore أو تم إرجاع معرف فارغ');
+      // Perform the actual raw Firestore setDoc write
+      await setDoc(entityDocRef, preparedEntityData);
+
+      console.log("Entity saved successfully", entityId);
+
+      // Verify the document was successfully created before claiming victory
+      const verifySnap = await getDoc(entityDocRef);
+      if (!verifySnap.exists()) {
+        const verifyError = new Error('فشلت عملية إنشاء document المورد في Firestore - لم يعثر الفحص اللاحق على المستند');
+        console.error("[App] Direct Firestore write verify failed! verifySnap.exists is false for ID:", entityId);
+        throw verifyError;
       }
 
-      console.log("[App] Entity doc created successfully. ID:", entityId);
+      console.log("[App] Direct Firestore write verify succeeded! Entity document exists. ID:", entityId);
 
-      // Activity
-      await firebaseService.addDocument('entityActivities', {
+      // Create Entity Activity document directly
+      const activityColRef = collection(db, 'entityActivities');
+      const activityDocRef = doc(activityColRef);
+      await setDoc(activityDocRef, {
+        id: activityDocRef.id,
         entityId: entityId,
         type: 'add_invoice',
         action: 'تأسيس حساب جديد',
@@ -2544,17 +2566,30 @@ export default function App() {
         branchId: defaultBranchId as string
       });
 
+      console.log("[App] Activity doc created successfully. ID:", activityDocRef.id);
+
+      // Notify the firebase change listeners to ensure local sync triggers
+      firebaseService.notifyCollectionChange('entities');
+      firebaseService.notifyCollectionChange('entityActivities');
+
+      // Trigger manual reload of the entity query cache as requested
+      if (typeof refetchEntities === 'function') {
+        console.log("[App] Triggering immediate refetch of entities list...");
+        await refetchEntities();
+      }
+
       setIsAddEntityOpen(false);
       setEntityImageFiles([]);
       toast.success('تم إنشاء المورد بنجاح');
 
       if (isAddingFromInvoice) {
-        setSelectedEntity({ id: entityId, name: data.name, ...newEntity } as any);
+        setSelectedEntity({ id: entityId, name: data.name, ...preparedEntityData } as any);
         setIsAddingFromInvoice(false);
       }
 
       return entityId;
     } catch (err: any) {
+      console.error("Entity save failed:", err);
       console.error("[App] FATAL ERROR IN handleAddEntity (Detailed log):", {
         error: err,
         message: err?.message,
