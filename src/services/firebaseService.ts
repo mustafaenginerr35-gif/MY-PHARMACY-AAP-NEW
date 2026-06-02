@@ -304,22 +304,22 @@ export const firebaseService = {
 
   async deleteDocument(collectionName: string, id: string) {
     checkIsReadOnlyBlocked(collectionName);
-    const { authenticated } = getEffectiveUserInfo();
+    const { authenticated, uid } = getEffectiveUserInfo();
     if (!authenticated) throw new Error('يرجى تسجيل الدخول أولاً');
 
     try {
-      console.log("Deleting from Firestore:", collectionName, id);
-      const docRef = doc(db, collectionName, id);
+      const { writeBatch, doc } = await import('firebase/firestore');
+      const batch = writeBatch(db);
       
-      // Get data first for storage cleanup metadata
+      // 1. Reference original document
+      const docRef = doc(db, collectionName, id);
       const snapshot = await getDoc(docRef);
       const data = snapshot.data();
 
-      // Delete the main document
-      await deleteDoc(docRef);
-      console.log("Firestore delete success");
+      // Add to batch
+      batch.delete(docRef);
       
-      // Cascade-delete related records with this as sourceId using direct deleteDoc to ensure logs for each
+      // 2. Cascade delete related records with this as sourceId
       const relatedCols = ['ledgerEntries', 'transactions', 'entityActivities', 'notifications', 'historicalRecords'];
       for (const col of relatedCols) {
         try {
@@ -328,13 +328,11 @@ export const firebaseService = {
           ]);
           if (related && related.length > 0) {
             for (const item of related) {
-              console.log("Deleting from Firestore:", col, item.id);
-              await deleteDoc(doc(db, col, item.id!));
-              console.log("Firestore delete success");
+              batch.delete(doc(db, col, item.id!));
             }
           }
         } catch (relatedErr) {
-          console.warn(`[Firebase] Could not cascade-delete related ${col} for ${id}:`, relatedErr);
+          console.warn(`[Firebase] Could not find related ${col} for ${id} for batch:`, relatedErr);
         }
       }
 
@@ -352,22 +350,23 @@ export const firebaseService = {
             ]);
             if (related && related.length > 0) {
               for (const item of related) {
-                console.log("Deleting from Firestore:", way.col, item.id);
-                await deleteDoc(doc(db, way.col, item.id!));
-                console.log("Firestore delete success");
+                batch.delete(doc(db, way.col, item.id!));
               }
             }
           } catch (e) {}
         }
       }
 
+      // 3. Commit batch
+      await batch.commit();
+      console.log(`[Firebase] Atomically deleted ${collectionName}/${id} and related data`);
       firebaseService.notifyCollectionChange(collectionName);
       // Notify other collections that might have been cascade-deleted
       ['ledgerEntries', 'transactions', 'entityActivities', 'notifications', 'historicalRecords'].forEach(col => 
         firebaseService.notifyCollectionChange(col)
       );
 
-      // Clean up storage (cannot be part of Firestore delete)
+      // 4. Clean up storage (cannot be part of Firestore batch)
       if (data && data.imageUrl) {
         try {
           await this.deleteImage(data.imageUrl);
@@ -389,7 +388,7 @@ export const firebaseService = {
       }
 
     } catch (error) {
-      console.error("Firestore delete failed:", error);
+      console.error(`[Firebase] Error deleting ${collectionName}/${id}:`, error);
       handleFirestoreError(error, OperationType.DELETE, `${collectionName}/${id}`);
     }
   },

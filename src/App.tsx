@@ -840,25 +840,25 @@ export default function App() {
   const entityActivitiesQuery = useMemo(() => ownerQuery, [ownerQuery]);
 
   // Firebase Real-time Queries with Owner Override Supports
-  const { data: expiredDamagedLosses = [], loading: loadingLosses, refetch: refetchLosses } = useFirebaseQuery<ExpiredDamagedLoss>('expiredDamagedLosses', ownerQuery, currentEffectiveOwnerId);
-  const { data: rawBranches = [], loading: loadingBranches, refetch: refetchBranches } = useFirebaseQuery<PharmacyBranch>('branches', branchesQuery, currentEffectiveOwnerId);
-  const { data: rawTransactions = [], loading: loadingTransactions, refetch: refetchTransactions } = useFirebaseQuery<Transaction>('transactions', transactionsQuery, currentEffectiveOwnerId);
+  const { data: expiredDamagedLosses = [], loading: loadingLosses } = useFirebaseQuery<ExpiredDamagedLoss>('expiredDamagedLosses', ownerQuery, currentEffectiveOwnerId);
+  const { data: rawBranches = [], loading: loadingBranches } = useFirebaseQuery<PharmacyBranch>('branches', branchesQuery, currentEffectiveOwnerId);
+  const { data: rawTransactions = [], loading: loadingTransactions } = useFirebaseQuery<Transaction>('transactions', transactionsQuery, currentEffectiveOwnerId);
   const { data: rawEntities = [], loading: loadingEntities, refetch: refetchEntities } = useFirebaseQuery<Entity>('entities', entitiesQuery, appUser?.role === 'super_admin' ? 'all' : currentEffectiveOwnerId);
-  const { data: rawCustomerDebts = [], loading: loadingDebts, refetch: refetchCustomerDebts } = useFirebaseQuery<CustomerDebt>('customerDebts', customerDebtsQuery, currentEffectiveOwnerId);
-  const { data: rawNotifications = [], loading: loadingNotifications, refetch: refetchNotifications } = useFirebaseQuery<Notification>('notifications', notificationsQuery, currentEffectiveOwnerId);
-  const { data: rawBonuses = [], loading: loadingBonuses, refetch: refetchBonuses } = useFirebaseQuery<Bonus>('bonuses', bonusesQuery, currentEffectiveOwnerId);
-  const { data: rawEmployees = [], loading: loadingEmployees, refetch: refetchEmployees } = useFirebaseQuery<Employee>('employees', employeesQuery, currentEffectiveOwnerId);
-  const { data: rawEmployeeAttendance = [], loading: loadingAttendance, refetch: refetchAttendance } = useFirebaseQuery<EmployeeAttendance>('employeeAttendance', attendanceQuery, currentEffectiveOwnerId);
-  const { data: rawAllLedgerEntries = [], loading: loadingLedger, refetch: refetchLedgerEntries } = useFirebaseQuery<LedgerEntry>('ledgerEntries', ledgerEntriesQuery, currentEffectiveOwnerId);
-  const { data: rawHistoricalRecords = [], loading: loadingHistorical, refetch: refetchHistorical } = useFirebaseQuery<HistoricalRecord>('historicalRecords', historicalQuery, currentEffectiveOwnerId);
-  const { data: rawEntityActivities = [], loading: loadingActivities, refetch: refetchActivities } = useFirebaseQuery<EntityActivity>('entityActivities', entityActivitiesQuery, currentEffectiveOwnerId);
-  const { data: rawOpeningCash = [], loading: loadingOpeningCash, refetch: refetchOpeningCash } = useFirebaseQuery<OpeningCash>('openingCash', ownerQuery, currentEffectiveOwnerId);
-  const { data: rawLoans = [], loading: loadingLoans, refetch: refetchLoans } = useFirebaseQuery<Loan>('loans', ownerQuery, currentEffectiveOwnerId);
-  const { data: rawSupplierOpeningBalances = [], loading: loadingSupplierOpening, refetch: refetchSupplierOpening } = useFirebaseQuery<SupplierOpeningBalance>('supplierOpeningBalances', ownerQuery, currentEffectiveOwnerId);
-  const { data: deadlines = [], loading: loadingDeadlines, refetch: refetchDeadlines } = useFirebaseQuery<Deadline>('deadlines', ownerQuery, currentEffectiveOwnerId);
-  const { data: activationCodes = [], refetch: refetchActivationCodes } = useFirebaseQuery<ActivationCode>('activationCodes');
-  const { data: activationRequests = [], refetch: refetchActivationRequests } = useFirebaseQuery<ActivationRequest>('activationRequests', ownerQuery, currentEffectiveOwnerId);
-  const { data: recoveryRequests = [], refetch: refetchRecoveryRequests } = useFirebaseQuery<RecoveryRequest>('recoveryRequests', ownerQuery, currentEffectiveOwnerId);
+  const { data: rawCustomerDebts = [], loading: loadingDebts } = useFirebaseQuery<CustomerDebt>('customerDebts', customerDebtsQuery, currentEffectiveOwnerId);
+  const { data: rawNotifications = [], loading: loadingNotifications } = useFirebaseQuery<Notification>('notifications', notificationsQuery, currentEffectiveOwnerId);
+  const { data: rawBonuses = [], loading: loadingBonuses } = useFirebaseQuery<Bonus>('bonuses', bonusesQuery, currentEffectiveOwnerId);
+  const { data: rawEmployees = [], loading: loadingEmployees } = useFirebaseQuery<Employee>('employees', employeesQuery, currentEffectiveOwnerId);
+  const { data: rawEmployeeAttendance = [], loading: loadingAttendance } = useFirebaseQuery<EmployeeAttendance>('employeeAttendance', attendanceQuery, currentEffectiveOwnerId);
+  const { data: rawAllLedgerEntries = [], loading: loadingLedger } = useFirebaseQuery<LedgerEntry>('ledgerEntries', ledgerEntriesQuery, currentEffectiveOwnerId);
+  const { data: rawHistoricalRecords = [], loading: loadingHistorical } = useFirebaseQuery<HistoricalRecord>('historicalRecords', historicalQuery, currentEffectiveOwnerId);
+  const { data: rawEntityActivities = [], loading: loadingActivities } = useFirebaseQuery<EntityActivity>('entityActivities', entityActivitiesQuery, currentEffectiveOwnerId);
+  const { data: rawOpeningCash = [], loading: loadingOpeningCash } = useFirebaseQuery<OpeningCash>('openingCash', ownerQuery, currentEffectiveOwnerId);
+  const { data: rawLoans = [], loading: loadingLoans } = useFirebaseQuery<Loan>('loans', ownerQuery, currentEffectiveOwnerId);
+  const { data: rawSupplierOpeningBalances = [], loading: loadingSupplierOpening } = useFirebaseQuery<SupplierOpeningBalance>('supplierOpeningBalances', ownerQuery, currentEffectiveOwnerId);
+  const { data: deadlines = [], loading: loadingDeadlines } = useFirebaseQuery<Deadline>('deadlines', ownerQuery, currentEffectiveOwnerId);
+  const { data: activationCodes = [] } = useFirebaseQuery<ActivationCode>('activationCodes');
+  const { data: activationRequests = [] } = useFirebaseQuery<ActivationRequest>('activationRequests', ownerQuery, currentEffectiveOwnerId);
+  const { data: recoveryRequests = [] } = useFirebaseQuery<RecoveryRequest>('recoveryRequests', ownerQuery, currentEffectiveOwnerId);
   
   const [remoteConfig, setRemoteConfig] = useState<SystemConfig | null>(null);
   const [loadingRemoteConfig, setLoadingRemoteConfig] = useState(true);
@@ -2731,29 +2731,22 @@ export default function App() {
         branchId: currentBranchId || undefined
       });
 
-      if (typeof refetchEntities === 'function') await refetchEntities();
-      if (typeof refetchActivities === 'function') await refetchActivities();
-
       setIsEntityDeleteOptionsOpen(false);
       setDeletingEntityData(null);
       toast.success('تم أرشفة المورد بنجاح (مع الاحتفاظ ببياناته)');
     } catch (error) {
-      console.error("Archive failed:", error);
-      toast.error(error instanceof Error ? error.message : 'فشل في عملية الأرشفة');
+      console.error(error);
+      toast.error('فشل في عملية الأرشفة');
     }
   };
 
   const handleSoftDeleteEntity = async (id: string) => {
     try {
-      console.log("Updating document in Firestore: entities", id);
-      const docRef = doc(db, 'entities', id);
-      await updateDoc(docRef, { 
+      await firebaseService.updateDocument('entities', id, { 
         status: 'محذوف',
-        deletedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        isDeleted: true
+        deletedAt: new Date(),
+        updatedAt: new Date()
       });
-      console.log("Firestore update success");
 
       await firebaseService.addDocument('entityActivities', {
         entityId: id,
@@ -2766,14 +2759,11 @@ export default function App() {
         branchId: currentBranchId || undefined
       });
 
-      if (typeof refetchEntities === 'function') await refetchEntities();
-      if (typeof refetchActivities === 'function') await refetchActivities();
-
       setIsDeleteConfirmOpen(false);
-      toast.success('تم الحذف بنجاح');
+      toast.success('تم حذف المورد بنجاح');
     } catch (error) {
-      console.error("Firestore delete failed:", error);
-      toast.error(error instanceof Error ? error.message : 'فشل في عملية الحذف');
+      console.error(error);
+      toast.error('فشل في عملية الحذف');
     }
   };
 
@@ -2786,19 +2776,15 @@ export default function App() {
         try {
           await firebaseService.deleteDocument('entities', id);
           
-          if (typeof refetchEntities === 'function') await refetchEntities();
-          if (typeof refetchLedgerEntries === 'function') await refetchLedgerEntries();
-          if (typeof refetchActivities === 'function') await refetchActivities();
-          
           setIsEntityDeleteOptionsOpen(false);
           setViewingEntityDetail(null);
           setDeletingEntityData(null);
           setDeleteConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }));
           toast.success('تم حذف المورد وكافة بياناته المرتبطة نهائياً');
         } catch (error) {
-          console.error("Delete failed:", error);
+          console.error("Full delete failed:", error);
           setDeleteConfirmState(prev => ({ ...prev, isLoading: false }));
-          toast.error(error instanceof Error ? error.message : 'فشل في عملية الحذف النهائي');
+          toast.error('فشل في عملية الحذف النهائي');
         }
       }
     );
@@ -2858,15 +2844,12 @@ export default function App() {
           console.log("Deleting employee and cascading records:", id);
           await firebaseService.deleteDocument('employees', id);
           
-          if (typeof refetchEmployees === 'function') await refetchEmployees();
-          if (typeof refetchAttendance === 'function') await refetchAttendance();
-          
           setDeleteConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }));
           toast.success('تم حذف الموظف وكافة بياناته نهائياً');
         } catch (error) {
-          console.error("Firestore delete failed:", error);
+          console.error(error);
           setDeleteConfirmState(prev => ({ ...prev, isLoading: false }));
-          toast.error(error instanceof Error ? error.message : 'فشل في حذف الموظف');
+          toast.error('فشل في حذف الموظف');
         }
       }
     );
@@ -2976,15 +2959,12 @@ export default function App() {
         try {
           console.log("Deleting attendance:", id);
           await firebaseService.deleteDocument('employeeAttendance', id);
-          
-          if (typeof refetchAttendance === 'function') await refetchAttendance();
-          
           setDeleteConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }));
           toast.success('تم حذف سجل الحضور نهائياً');
         } catch (error) {
-          console.error("Firestore delete failed:", error);
+          console.error(error);
           setDeleteConfirmState(prev => ({ ...prev, isLoading: false }));
-          toast.error(error instanceof Error ? error.message : 'فشل في الحذف');
+          toast.error('فشل في الحذف');
         }
       }
     );
@@ -3091,21 +3071,14 @@ export default function App() {
       async () => {
         setDeleteConfirmState(prev => ({ ...prev, isLoading: true }));
         try {
-          await firebaseService.updateDocument('branches', id, { 
-            status: 'inactive',
-            isDeleted: true,
-            deletedAt: new Date()
-          });
+          await firebaseService.updateDocument('branches', id, { status: 'inactive' });
           if (currentBranchId === id) setCurrentBranchId(null);
-          
-          if (typeof refetchBranches === 'function') await refetchBranches();
-          
           setDeleteConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }));
           toast.success('تم تعطيل الفرع بنجاح');
         } catch (err) {
-          console.error("Firestore delete failed:", err);
+          console.error("Delete Branch Error:", err);
           setDeleteConfirmState(prev => ({ ...prev, isLoading: false }));
-          toast.error(err instanceof Error ? err.message : 'حدث خطأ أثناء التعطيل');
+          toast.error('حدث خطأ أثناء التعطيل');
         }
       }
     );
@@ -3373,13 +3346,10 @@ export default function App() {
   const handleDeleteDeadline = async (id: string) => {
     try {
       await firebaseService.deleteDocument('deadlines', id);
-      
-      if (typeof refetchDeadlines === 'function') await refetchDeadlines();
-      
       toast.success('تم حذف موعد التسديد');
     } catch (error) {
-      console.error("Firestore delete failed:", error);
-      toast.error(error instanceof Error ? error.message : 'فشل في حذف الموعد');
+      console.error('Failed to delete deadline:', error);
+      toast.error('فشل في حذف الموعد');
       throw error;
     }
   };
@@ -3941,16 +3911,12 @@ export default function App() {
           
           await firebaseService.updateDocument('entities', selectedEntity.id!, updateData);
           
-          if (typeof refetchLedgerEntries === 'function') await refetchLedgerEntries();
-          if (typeof refetchEntities === 'function') await refetchEntities();
-          if (typeof refetchHistorical === 'function') await refetchHistorical();
-          
           setDeleteConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }));
           setIsDeleteInvoiceConfirmOpen(false);
           setViewingInvoice(null);
           toast.success('تم الحذف النهائي وتحديث الحسابات بنجاح');
         } catch (err) {
-          console.error("Firestore delete failed:", err);
+          console.error("Failed to delete record:", err);
           setDeleteConfirmState(prev => ({ ...prev, isLoading: false }));
           toast.error(err instanceof Error ? err.message : 'فشل حذف العملية');
         }
@@ -3969,27 +3935,14 @@ export default function App() {
         try {
           if (!tx.id) throw new Error("ID السجل غير موجود");
           
-          const col = (tx as any)._col || 'ledgerEntries';
-          await firebaseService.deleteDocument(col, tx.id);
-          
-          if (col === 'ledgerEntries') {
-            try {
-              await firebaseService.deleteDocument('transactions', tx.id);
-            } catch (e) {
-              console.log("[App] Optional shadow deletion from transactions skipped/failed:", e);
-            }
-          }
-          
-          if (typeof refetchTransactions === 'function') await refetchTransactions();
-          if (typeof refetchLedgerEntries === 'function') await refetchLedgerEntries();
+          await firebaseService.deleteDocument('transactions', tx.id);
           
           setDeleteConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }));
           setIsEditTransactionOpen(false);
           toast.success(`تم حذف ${isExpense ? 'المصروف' : 'الإيراد'} نهائياً`);
         } catch (err) {
-          console.error("Firestore delete failed:", err);
           setDeleteConfirmState(prev => ({ ...prev, isLoading: false }));
-          toast.error(err instanceof Error ? err.message : 'فشل عملية الحذف النهائي');
+          toast.error('فشل عملية الحذف النهائي');
         }
       }
     );
@@ -4003,15 +3956,11 @@ export default function App() {
         setDeleteConfirmState(prev => ({ ...prev, isLoading: true }));
         try {
           await firebaseService.deleteDocument('historicalRecords', id);
-          
-          if (typeof refetchHistorical === 'function') await refetchHistorical();
-          
           setDeleteConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }));
           toast.success('تم حذف السجل التاريخي بنجاح');
         } catch (err) {
-          console.error("Firestore delete failed:", err);
           setDeleteConfirmState(prev => ({ ...prev, isLoading: false }));
-          toast.error(err instanceof Error ? err.message : 'حدث خطأ أثناء الحذف');
+          toast.error('حدث خطأ أثناء الحذف');
         }
       }
     );
@@ -4033,15 +3982,12 @@ export default function App() {
              await firebaseService.deleteDocument('ledgerEntries', entry.id!);
           }
 
-          if (typeof refetchOpeningCash === 'function') await refetchOpeningCash();
-          if (typeof refetchLedgerEntries === 'function') await refetchLedgerEntries();
-
           setDeleteConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }));
           toast.success('تم حذف الرصيد الافتتاحي والقيود المرتبطة به بنجاح');
         } catch (err) {
-          console.error("Firestore delete failed:", err);
+          console.error("Delete Opening Cash Error:", err);
           setDeleteConfirmState(prev => ({ ...prev, isLoading: false }));
-          toast.error(err instanceof Error ? err.message : 'حدث خطأ أثناء الحذف');
+          toast.error('حدث خطأ أثناء الحذف');
         }
       }
     );
@@ -4056,15 +4002,11 @@ export default function App() {
         setDeleteConfirmState(prev => ({ ...prev, isLoading: true }));
         try {
           await firebaseService.deleteDocument('bonuses', id);
-          
-          if (typeof refetchBonuses === 'function') await refetchBonuses();
-          
           setDeleteConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }));
           toast.success('تم حذف البونص بنجاح');
         } catch (err) {
-          console.error("Firestore delete failed:", err);
           setDeleteConfirmState(prev => ({ ...prev, isLoading: false }));
-          toast.error(err instanceof Error ? err.message : 'حدث خطأ أثناء الحذف');
+          toast.error('حدث خطأ أثناء الحذف');
         }
       }
     );
@@ -4088,15 +4030,12 @@ export default function App() {
           }
           
           await firebaseService.updateDocument('ledgerEntries', ledgerId, updateData);
-          
-          if (typeof refetchLedgerEntries === 'function') await refetchLedgerEntries();
-          
           setDeleteConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }));
           toast.success('تم حذف الصورة بنجاح');
         } catch (err) {
-          console.error("Firestore delete failed:", err);
+          console.error("Error deleting attachment:", err);
           setDeleteConfirmState(prev => ({ ...prev, isLoading: false }));
-          toast.error(err instanceof Error ? err.message : 'فشل في حذف الصورة');
+          toast.error('فشل في حذف الصورة');
         }
       }
     );
@@ -4598,15 +4537,11 @@ export default function App() {
         setDeleteConfirmState(prev => ({ ...prev, isLoading: true }));
         try {
           await firebaseService.deleteDocument('expiredDamagedLosses', loss.id!);
-          
-          if (typeof refetchLosses === 'function') await refetchLosses();
-          
           setDeleteConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }));
           toast.success('تم حذف السجل بنجاح');
         } catch (err) {
-          console.error("Firestore delete failed:", err);
           setDeleteConfirmState(prev => ({ ...prev, isLoading: false }));
-          toast.error(err instanceof Error ? err.message : 'حدث خطأ أثناء الحذف');
+          toast.error('حدث خطأ أثناء الحذف');
         }
       }
     );
@@ -4622,15 +4557,12 @@ export default function App() {
         setDeleteConfirmState(prev => ({ ...prev, isLoading: true }));
         try {
           await firebaseService.deleteDocument('medicineRequests', id);
-          
-          // No refetch binding defined, but standard callback notifications handle online fallback.
-          
           setDeleteConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }));
           toast.success('تم حذف الطلب بنجاح');
         } catch (err) {
-          console.error("Firestore delete failed:", err);
+          console.error("Error deleting medicine request:", err);
           setDeleteConfirmState(prev => ({ ...prev, isLoading: false }));
-          toast.error(err instanceof Error ? err.message : 'حدث خطأ أثناء الحذف');
+          toast.error('حدث خطأ أثناء الحذف');
         }
       }
     );
@@ -4647,9 +4579,9 @@ export default function App() {
           setDeleteConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }));
           toast.success('تم حذف الصورة بنجاح');
         } catch (err) {
-          console.error("Firestore delete failed:", err);
+          console.error("Error deleting image:", err);
           setDeleteConfirmState(prev => ({ ...prev, isLoading: false }));
-          toast.error(err instanceof Error ? err.message : 'فشل في الحذف');
+          toast.error('فشل في الحذف');
         }
       }
     );
