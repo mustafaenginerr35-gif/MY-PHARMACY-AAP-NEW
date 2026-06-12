@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Authenticating...</title>
+</head>
+<body>
+    <script>
+        console.log('Auth callback reached');
+        // Parse the hash fragment for the access token
+        const params = new URLSearchParams(window.location.hash.substring(1));
+        const token = params.get('access_token');
+        const error = params.get('error');
+
+        if (window.opener) {
+            console.log('Opener found, sending message...');
+            if (token) {
+                console.log('Token found, sending success...');
+                window.opener.postMessage({ type: 'GOOGLE_AUTH_SUCCESS', token: token }, window.location.origin);
+            } else if (error) {
+                console.error('Error found, sending error:', error);
+                window.opener.postMessage({ type: 'GOOGLE_AUTH_ERROR', error: error }, window.location.origin);
+            }
+            setTimeout(() => {
+                console.log('Closing window...');
+                window.close();
+            }, 1000);
+        } else {
+            console.warn('No opener found, redirecting to home...');
+            // Fallback if not opened in a popup
+            window.location.href = '/';
+        }
+    </script>
+    <p>Authentication successful. This window should close automatically.</p>
+</body>
+</html>

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ar" dir="rtl" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#059669" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="صيدليتي" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    
+    <!-- SEO Meta Tags -->
+    <title>صيدليتي | نظام الحسابات الذكية للصيدليات</title>
+    <meta name="description" content="برنامج صيدليتي لإدارة الحسابات الذكية للصيدليات العراقية. إدارة الإيرادات والمصاريف والفواتير والموردين والمخازن والتقارير المالية من مكان واحد." />
+    <meta name="keywords" content="صيدلية, برنامج صيدلية, حسابات الصيدليات, إدارة الصيدليات, برنامج صيدليتي, Pharmacy Management System, Iraq Pharmacy Software" />
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://ais-pre-j5ednw46e7wxbpt7dnwxb4-263070466747.europe-west2.run.app/" />
+    <meta property="og:title" content="صيدليتي | نظام الحسابات الذكية للصيدليات" />
+    <meta property="og:description" content="إدارة الإيرادات والمصاريف والفواتير والموردين والتقارير المالية للصيدليات." />
+    <meta property="og:site_name" content="صيدليتي" />
+    <meta property="og:locale" content="ar_IQ" />
+    <meta property="og:image" content="https://images.unsplash.com/photo-1631549916768-4119b255f9a2?auto=format&fit=crop&w=1200&h=630&q=80" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://ais-pre-j5ednw46e7wxbpt7dnwxb4-263070466747.europe-west2.run.app/" />
+    <meta name="twitter:title" content="صيدليتي | نظام الحسابات الذكية للصيدليات" />
+    <meta name="twitter:description" content="برنامج ذكي لإدارة الحسابات والمخازن والفواتير والتقارير للصيدليات." />
+    <meta name="twitter:image" content="https://images.unsplash.com/photo-1631549916768-4119b255f9a2?auto=format&fit=crop&w=1200&h=630&q=80" />
+
+    <!-- Favicon and PWA -->
+    <link rel="icon" type="image/png" href="https://images.unsplash.com/photo-1631549916768-4119b255f9a2?auto=format&fit=crop&w=64&h=64&q=80" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="https://images.unsplash.com/photo-1631549916768-4119b255f9a2?auto=format&fit=crop&w=192&h=192&q=80" />
+    
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('Service worker registered.', reg))
+            .catch(err => console.log('Service worker registration failed:', err));
+        });
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

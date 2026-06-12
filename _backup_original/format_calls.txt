@@ -1,0 +1,1 @@
+7260:                  استعراض كافة السجلات المكونة لهذا الإجمالي للفترة من {format(startOfMonth(new Date(reportsYear, reportsMonth)), 'dd/MM/yyyy')} إلى {format(endOfMonth(new Date(reportsYear, reportsMonth)), 'dd/MM/yyyy')}
