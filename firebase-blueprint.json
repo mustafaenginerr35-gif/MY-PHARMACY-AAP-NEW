@@ -150,6 +150,41 @@
         "paymentStatus": { "type": "string", "enum": ["paid", "pending", "manual"] }
       },
       "required": ["licenseKey", "planType", "status"]
+    },
+    "DailyBackup": {
+      "title": "Daily Backup",
+      "description": "Daily automatic customer backup snapshot containing all records and counts",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string" },
+        "backupDate": { "type": "string", "format": "date-time" },
+        "dayString": { "type": "string" },
+        "recordCounts": { "type": "object" },
+        "totalRecordsCount": { "type": "number" },
+        "data": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "backupDate", "dayString", "totalRecordsCount", "data", "createdAt"]
+    },
+    "EmployeeCheckIn": {
+      "title": "Employee Check-In",
+      "description": "Daily smart attendance clock check-in and check-out logs for employees",
+      "type": "object",
+      "properties": {
+        "employeeId": { "type": "string" },
+        "employeeName": { "type": "string" },
+        "pharmacyId": { "type": "string" },
+        "branchId": { "type": "string" },
+        "checkInTime": { "type": "string" },
+        "checkOutTime": { "type": "string" },
+        "totalHours": { "type": "number" },
+        "date": { "type": "string", "format": "date-time" },
+        "dateStr": { "type": "string" },
+        "deviceInfo": { "type": "string" },
+        "status": { "type": "string", "enum": ["checked_in", "checked_out"] },
+        "ownerId": { "type": "string" }
+      },
+      "required": ["employeeId", "employeeName", "pharmacyId", "branchId", "checkInTime", "date", "dateStr", "status", "ownerId"]
     }
   },
   "firestore": {
@@ -177,6 +212,9 @@
     "supplierOpeningBalances": { "schema": "SupplierOpeningBalance", "description": "Supplier initial tracking" },
     "loans": { "schema": "Loan", "description": "Loans and returned deposits records" },
     "system": { "schema": "SystemConfig", "description": "Global app version and config" },
-    "licenses": { "schema": "License", "description": "SaaS license details" }
+    "licenses": { "schema": "License", "description": "SaaS license details" },
+    "employeeCheckIns": { "schema": "EmployeeCheckIn", "description": "Daily employee check-in and check-out logs" },
+    "systemLogs": { "schema": "object", "description": "System operation logs" },
+    "dailyBackups": { "schema": "DailyBackup", "description": "Daily automatic snapshots of user collections" }
   }
 }
