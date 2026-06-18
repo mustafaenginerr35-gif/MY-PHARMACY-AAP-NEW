@@ -36,7 +36,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { safeFormatDate, formatIQD } from '../lib/formatters';
 
 import { LedgerEntry, Entity } from '../db';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { firebaseService } from '../services/firebaseService';
 import { toast } from 'sonner';

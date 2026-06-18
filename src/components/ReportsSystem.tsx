@@ -17,13 +17,28 @@ import {
   Building2,
   Users,
   ArrowLeftRight,
-  Layers
+  Layers,
+  FileSpreadsheet,
+  Download,
+  CheckCircle2,
+  Printer,
+  Clock,
+  ChevronDown
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { calculateReportsFromRecords, ReportResult } from '../services/reportCalculator';
-import { formatNumberWithCommas } from '../lib/formatters';
+import { formatNumberWithCommas, toValidDate, safeFormatDate } from '../lib/formatters';
 import { startOfMonth, endOfMonth, startOfDay, endOfDay, subDays, subMonths, format } from 'date-fns';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
+import * as XLSX from 'xlsx';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { PaymentsReportSystem } from './PaymentsReportSystem';
 
 interface ReportsSystemProps {
   transactions: any[];
@@ -62,6 +77,18 @@ export const ReportsSystem: React.FC<ReportsSystemProps> = ({
   
   const [showCashDetails, setShowCashDetails] = useState(false);
   const [showProfitDetails, setShowProfitDetails] = useState(false);
+
+  // Sub-Tabs State
+  const [activeTab, setActiveTab] = useState<'financial' | 'payments'>('financial');
+
+  // "تقرير التسديدات" State
+  const [payDateRange, setPayDateRange] = useState({
+    startDate: format(startOfMonth(new Date()), 'yyyy-MM-dd'),
+    endDate: format(endOfMonth(new Date()), 'yyyy-MM-dd')
+  });
+  const [paySupplierId, setPaySupplierId] = useState<string>('all');
+  const [payStatus, setPayStatus] = useState<'all' | 'paid' | 'unpaid' | 'partial'>('all');
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
 
   const handleFilterChange = (type: 'all' | 'today' | 'this_month' | 'last_month' | 'custom') => {
     setFilterType(type);
@@ -115,6 +142,123 @@ export const ReportsSystem: React.FC<ReportsSystemProps> = ({
     });
   }, [transactions, ledgerEntries, historicalRecords, expiredLosses, openingCash, entities, attendance, customerDebts, loans, dateRange, currentBranchId]);
 
+  // Invoices and Payments calculation for "تقرير التسديدات"
+  const paymentsReportData = useMemo(() => {
+    // 1. Get all ledger entries of type 'invoice' that are not deleted
+    const invoices = ledgerEntries.filter(
+      (entry) => entry.operationType === 'invoice' && !entry.isDeleted
+    );
+
+    // 2. Filter by branch if currentBranchId is active
+    let filtered = invoices;
+    if (currentBranchId) {
+      filtered = filtered.filter((inv) => inv.branchId === currentBranchId);
+    }
+
+    // 3. Filter by Date range
+    if (payDateRange.startDate) {
+      const start = startOfDay(new Date(payDateRange.startDate));
+      filtered = filtered.filter((inv) => {
+        const invDate = toValidDate(inv.date);
+        return invDate >= start;
+      });
+    }
+    if (payDateRange.endDate) {
+      const end = endOfDay(new Date(payDateRange.endDate));
+      filtered = filtered.filter((inv) => {
+        const invDate = toValidDate(inv.date);
+        return invDate <= end;
+      });
+    }
+
+    // 4. Filter by Supplier
+    if (paySupplierId && paySupplierId !== 'all') {
+      filtered = filtered.filter((inv) => inv.accountId === paySupplierId);
+    }
+
+    // 5. Filter by Payment Status
+    if (payStatus && payStatus !== 'all') {
+      if (payStatus === 'paid') {
+        filtered = filtered.filter((inv) => inv.paymentStatus === 'paid');
+      } else if (payStatus === 'unpaid') {
+        filtered = filtered.filter(
+          (inv) =>
+            inv.paymentStatus === 'pending' ||
+            inv.paymentStatus === 'unpaid' ||
+            inv.paymentStatus === 'overdue' ||
+            (!inv.paymentStatus && (inv.remainingAmount ?? inv.amount) > 0 && !(inv.paidAmount > 0))
+        );
+      } else if (payStatus === 'partial') {
+        filtered = filtered.filter(
+          (inv) => inv.paymentStatus === 'partial' || inv.paymentStatus === 'partially_paid'
+        );
+      }
+    }
+
+    // Sort by date descending
+    filtered.sort((a, b) => {
+      const dateA = toValidDate(a.date).getTime();
+      const dateB = toValidDate(b.date).getTime();
+      return dateB - dateA;
+    });
+
+    // Calculate summaries
+    const totalCount = filtered.length;
+    
+    // Total paid count: those with 'paid' status
+    const paidCount = filtered.filter((inv) => inv.paymentStatus === 'paid').length;
+    
+    // Total unpaid count: those with status pending/unpaid/overdue, or remainingAmount === netAmount
+    const unpaidCount = filtered.filter(
+      (inv) =>
+        inv.paymentStatus === 'pending' ||
+        inv.paymentStatus === 'unpaid' ||
+        inv.paymentStatus === 'overdue' ||
+        (!inv.paymentStatus && (inv.remainingAmount ?? inv.amount) > 0 && !(inv.paidAmount > 0))
+    ).length;
+
+    const sumGrossAmount = filtered.reduce((sum, inv) => sum + Number(inv.amount || 0), 0);
+    const sumDiscount = filtered.reduce((sum, inv) => sum + Number(inv.discount || 0), 0);
+    const sumNetAmount = filtered.reduce((sum, inv) => sum + Number(inv.netAmount ?? (inv.amount - (inv.discount || 0))), 0);
+    const sumPaid = filtered.reduce((sum, inv) => sum + Number(inv.paidAmount || 0), 0);
+    const sumRemaining = filtered.reduce((sum, inv) => sum + Number(inv.remainingAmount ?? (inv.netAmount ?? (inv.amount - (inv.discount || 0))) - (inv.paidAmount || 0)), 0);
+
+    return {
+      items: filtered,
+      summaries: {
+        totalCount,
+        paidCount,
+        unpaidCount,
+        sumGrossAmount,
+        sumDiscount,
+        sumNetAmount,
+        sumPaid,
+        sumRemaining
+      }
+    };
+  }, [ledgerEntries, currentBranchId, payDateRange, paySupplierId, payStatus]);
+
+  // Extract payment operations once for extremely efficient querying
+  const invoicePayments = useMemo(() => {
+    return ledgerEntries.filter(
+      (e) => e.operationType === 'payment' && !e.isDeleted
+    );
+  }, [ledgerEntries]);
+
+  // Find date of last payment
+  const getInvoiceLastPaymentDate = (invoiceId: string) => {
+    const matches = invoicePayments.filter((p) => p.linkedInvoiceId === invoiceId);
+    if (matches.length === 0) return 'لا يوجد';
+    
+    // Find the latest payment date
+    const latest = matches.reduce((latestPay, currentPay) => {
+      const latestTime = toValidDate(latestPay.date).getTime();
+      const currentTime = toValidDate(currentPay.date).getTime();
+      return currentTime > latestTime ? currentPay : latestPay;
+    });
+    return safeFormatDate(latest.date, 'yyyy/MM/dd');
+  };
+
   const StatCard = ({ title, value, icon: Icon, color, subValue, onClick }: any) => (
     <Card 
       onClick={onClick}
@@ -146,8 +290,41 @@ export const ReportsSystem: React.FC<ReportsSystemProps> = ({
 
   return (
     <div className="space-y-8">
-      {/* Header & Filters */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+      {/* Sub-Tabs Switcher */}
+      <div className="flex border-b border-border/80">
+        <button
+          onClick={() => setActiveTab('financial')}
+          className={`px-6 py-3 font-semibold text-sm border-b-2 transition-all cursor-pointer ${
+            activeTab === 'financial'
+              ? 'border-primary text-primary font-black bg-primary/5'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/10'
+          }`}
+        >
+          التقارير المالية والتحليلات
+        </button>
+        <button
+          onClick={() => setActiveTab('payments')}
+          id="tab-payments-report"
+          className={`px-6 py-3 font-semibold text-sm border-b-2 transition-all cursor-pointer ${
+            activeTab === 'payments'
+              ? 'border-primary text-primary font-black bg-primary/5'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/10'
+          }`}
+        >
+          تقرير التسديدات والقوائم
+        </button>
+      </div>
+
+      {activeTab === 'payments' ? (
+        <PaymentsReportSystem
+          ledgerEntries={ledgerEntries}
+          entities={entities}
+          currentBranchId={currentBranchId}
+        />
+      ) : (
+        <>
+          {/* Header & Filters */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
           <h2 className="text-3xl font-black tracking-tight text-foreground">التقارير المالية</h2>
           <p className="text-muted-foreground font-medium mt-1">تحليل شامل ومبسط للعمليات والنشاط المالي</p>
@@ -683,6 +860,8 @@ export const ReportsSystem: React.FC<ReportsSystemProps> = ({
           </Card>
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 };

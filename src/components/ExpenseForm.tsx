@@ -27,7 +27,7 @@ import {
   SelectTrigger, 
   SelectValue 
 } from '@/components/ui/select';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
 

@@ -74,6 +74,7 @@ interface SupplierAccountPageProps {
   onImportExcel?: () => void;
   onMultiEntry?: () => void;
   onSetDeadline?: (target: { id: string; number: string; amount: number; accountId: string; accountName: string }) => void;
+  onAddDeadline?: (supplierId: string) => void;
   appMode?: 'laptop' | 'mobile';
   activities?: EntityActivity[];
   deadlines?: Deadline[];
@@ -105,6 +106,7 @@ export const SupplierAccountPage = ({
   onImportExcel,
   onMultiEntry,
   onSetDeadline,
+  onAddDeadline,
   appMode = 'laptop',
   activities = [],
   deadlines = []
@@ -113,6 +115,92 @@ export const SupplierAccountPage = ({
   const [archiveMonth, setArchiveMonth] = useState('all');
   const [archiveStatus, setArchiveStatus] = useState('all');
   const [archiveSearch, setArchiveSearch] = useState('');
+
+  // Date Filter States
+  const [dateFilterType, setDateFilterType] = useState<'all' | 'day' | 'month' | 'year' | 'range'>('all');
+  const [filterSpecificDay, setFilterSpecificDay] = useState<string>('');
+  const [filterSpecificMonth, setFilterSpecificMonth] = useState<string>((new Date().getMonth() + 1).toString());
+  const [filterSpecificYear, setFilterSpecificYear] = useState<string>(new Date().getFullYear().toString());
+  const [filterRangeFrom, setFilterRangeFrom] = useState<string>('');
+  const [filterRangeTo, setFilterRangeTo] = useState<string>('');
+
+  const isDateInFilter = (dateInput: any) => {
+    if (dateFilterType === 'all') return true;
+    const itemDate = toValidDate(dateInput);
+    if (isNaN(itemDate.getTime())) return true;
+
+    if (dateFilterType === 'day') {
+      if (!filterSpecificDay) return true;
+      const targetDate = new Date(filterSpecificDay);
+      return itemDate.getFullYear() === targetDate.getFullYear() &&
+             itemDate.getMonth() === targetDate.getMonth() &&
+             itemDate.getDate() === targetDate.getDate();
+    }
+
+    if (dateFilterType === 'month') {
+      const targetMonth = parseInt(filterSpecificMonth);
+      const targetYear = parseInt(filterSpecificYear);
+      return itemDate.getFullYear() === targetYear && (itemDate.getMonth() + 1) === targetMonth;
+    }
+
+    if (dateFilterType === 'year') {
+      const targetYear = parseInt(filterSpecificYear);
+      return itemDate.getFullYear() === targetYear;
+    }
+
+    if (dateFilterType === 'range') {
+      const fromDate = filterRangeFrom ? new Date(filterRangeFrom) : null;
+      const toDate = filterRangeTo ? new Date(filterRangeTo) : null;
+      
+      const checkDate = new Date(itemDate);
+      
+      if (fromDate) {
+        const f = new Date(fromDate);
+        f.setHours(0, 0, 0, 0);
+        if (checkDate < f) return false;
+      }
+      if (toDate) {
+        const t = new Date(toDate);
+        t.setHours(23, 59, 59, 999);
+        if (checkDate > t) return false;
+      }
+      return true;
+    }
+
+    return true;
+  };
+
+  const filteredLedgerEntries = useMemo(() => {
+    return ledgerEntries.filter(e => isDateInFilter(e.date || e.createdAt));
+  }, [ledgerEntries, dateFilterType, filterSpecificDay, filterSpecificMonth, filterSpecificYear, filterRangeFrom, filterRangeTo]);
+
+  const filteredActivities = useMemo(() => {
+    return activities.filter(e => isDateInFilter(e.createdAt));
+  }, [activities, dateFilterType, filterSpecificDay, filterSpecificMonth, filterSpecificYear, filterRangeFrom, filterRangeTo]);
+
+  const filteredBonuses = useMemo(() => {
+    return bonuses.filter(e => isDateInFilter(e.dueDate || e.createdAt));
+  }, [bonuses, dateFilterType, filterSpecificDay, filterSpecificMonth, filterSpecificYear, filterRangeFrom, filterRangeTo]);
+
+  const periodStats = useMemo(() => {
+    const periodInvoices = filteredLedgerEntries.filter(e => e.operationType === 'invoice' && !e.isDeleted);
+    const periodPayments = filteredLedgerEntries.filter(e => e.operationType === 'payment' && !e.isDeleted);
+    
+    const totalInvoices = periodInvoices.reduce((acc, i) => acc + Number(i.amount || i.netAmount || 0), 0);
+    const totalPayments = periodPayments.reduce((acc, p) => acc + Number(p.amount || 0), 0);
+    const totalDiscounts = periodInvoices.reduce((acc, i) => acc + Number(i.discount || 0), 0);
+    
+    const totalRemaining = totalInvoices - totalPayments;
+    const totalOperationsCount = filteredLedgerEntries.length + filteredBonuses.length + filteredActivities.length;
+
+    return {
+      totalInvoices,
+      totalPayments,
+      totalDiscounts,
+      totalRemaining,
+      operationsCount: totalOperationsCount
+    };
+  }, [filteredLedgerEntries, filteredBonuses, filteredActivities]);
 
   const stats = useMemo(() => {
     const invoices = ledgerEntries.filter(e => e.operationType === 'invoice' && !e.isDeleted);
@@ -155,8 +243,8 @@ export const SupplierAccountPage = ({
   }, [ledgerEntries, bonuses, supplierOpeningBalances, entity]);
 
   const historicalInvoices = useMemo(() => {
-    return ledgerEntries.filter(e => e.operationType === 'invoice' && e.isHistorical === true);
-  }, [ledgerEntries]);
+    return filteredLedgerEntries.filter(e => e.operationType === 'invoice' && e.isHistorical === true);
+  }, [filteredLedgerEntries]);
 
   const filteredArchive = useMemo(() => {
     return historicalInvoices.filter(inv => {
@@ -170,16 +258,16 @@ export const SupplierAccountPage = ({
   }, [historicalInvoices, archiveYear, archiveMonth, archiveStatus, archiveSearch]);
 
   const timelineItems = useMemo(() => {
-    return [...ensureArray(activities), ...ensureArray(ledgerEntries), ...ensureArray(bonuses)]
+    return [...ensureArray(filteredActivities), ...ensureArray(filteredLedgerEntries), ...ensureArray(filteredBonuses)]
       .sort((a, b) => {
         const dateA = (a as any).date || (a as any).createdAt;
         const dateB = (b as any).date || (b as any).createdAt;
         return toValidDate(dateB).getTime() - toValidDate(dateA).getTime();
       });
-  }, [activities, ledgerEntries, bonuses]);
+  }, [filteredActivities, filteredLedgerEntries, filteredBonuses]);
 
   const monthlyPurchases = useMemo(() => {
-    const invoices = ledgerEntries.filter(e => e.operationType === 'invoice');
+    const invoices = filteredLedgerEntries.filter(e => e.operationType === 'invoice');
     const months: Record<string, any> = {};
     
     invoices.forEach(inv => {
@@ -234,6 +322,10 @@ export const SupplierAccountPage = ({
             <Edit className="h-4 w-4" />
             تعديل
           </Button>
+          <Button onClick={() => onAddDeadline?.(entity.id || '')} variant="outline" size="sm" className="gap-2 border-border text-foreground hover:bg-muted whitespace-nowrap">
+            <Clock className="h-4 w-4 text-primary" />
+            إضافة موعد تسديد
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger className="h-7 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 flex items-center gap-2 text-white text-xs font-bold shadow-lg shadow-emerald-600/20 transition-all outline-none">
               <Plus className="h-4 w-4" />
@@ -251,6 +343,10 @@ export const SupplierAccountPage = ({
               <DropdownMenuItem className="gap-2 p-3 cursor-pointer rounded-lg hover:bg-muted" onClick={onAddPayment}>
                 <Receipt className="h-4 w-4 text-emerald-500" />
                 <span>تسديد دفعة</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2 p-3 cursor-pointer rounded-lg hover:bg-muted" onClick={() => onAddDeadline?.(entity.id || '')}>
+                <Clock className="h-4 w-4 text-primary" />
+                <span>إضافة موعد تسديد</span>
               </DropdownMenuItem>
               <DropdownMenuItem className="gap-2 p-3 cursor-pointer rounded-lg hover:bg-muted" onClick={onAddBonus}>
                 <Gift className="h-4 w-4 text-amber-500" />
@@ -290,6 +386,127 @@ export const SupplierAccountPage = ({
           </Card>
         ))}
       </div>
+
+      {/* Date Filter & Period Summary SECTION */}
+      <Card className="bg-card border-border overflow-hidden rounded-2xl">
+        <CardHeader className="p-6 pb-2 border-b border-border/40">
+          <CardTitle className="text-sm font-black flex items-center gap-2">
+            <Clock className="h-4 w-4 text-primary animate-pulse" />
+            فلترة سجل العمليات والملخص للفترة
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-6 space-y-6">
+          <div className="flex flex-wrap items-center gap-3">
+            {[
+              { type: 'all', label: 'الكل' },
+              { type: 'day', label: 'يومي' },
+              { type: 'month', label: 'شهري' },
+              { type: 'year', label: 'سنوي' },
+              { type: 'range', label: 'فترة زمنية' }
+            ].map(btn => (
+              <Button
+                key={btn.type}
+                variant={dateFilterType === btn.type ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setDateFilterType(btn.type as any)}
+                className="font-bold rounded-lg"
+              >
+                {btn.label}
+              </Button>
+            ))}
+
+            {dateFilterType === 'day' && (
+              <Input
+                type="date"
+                value={filterSpecificDay}
+                onChange={(e) => setFilterSpecificDay(e.target.value)}
+                className="h-9 w-40 bg-muted border-border rounded-lg text-xs font-bold"
+              />
+            )}
+
+            {dateFilterType === 'month' && (
+              <div className="flex gap-2">
+                <Select value={filterSpecificMonth} onValueChange={setFilterSpecificMonth}>
+                  <SelectTrigger className="h-9 w-28 bg-muted border-border rounded-lg text-xs font-bold">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent dir="rtl" className="bg-card border-border">
+                    {Array.from({ length: 12 }, (_, i) => String(i + 1)).map(m => (
+                      <SelectItem key={m} value={m} className="text-xs font-bold">شهر {m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={filterSpecificYear} onValueChange={setFilterSpecificYear}>
+                  <SelectTrigger className="h-9 w-24 bg-muted border-border rounded-lg text-xs font-bold">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent dir="rtl" className="bg-card border-border">
+                    {Array.from({ length: 10 }, (_, i) => String(new Date().getFullYear() - i)).map(y => (
+                      <SelectItem key={y} value={y} className="text-xs font-bold">سنة {y}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {dateFilterType === 'year' && (
+              <Select value={filterSpecificYear} onValueChange={setFilterSpecificYear}>
+                <SelectTrigger className="h-9 w-28 bg-muted border-border rounded-lg text-xs font-bold">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent dir="rtl" className="bg-card border-border">
+                  {Array.from({ length: 10 }, (_, i) => String(new Date().getFullYear() - i)).map(y => (
+                    <SelectItem key={y} value={y} className="text-xs font-bold">سنة {y}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
+            {dateFilterType === 'range' && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted-foreground font-bold">من تاريخ:</span>
+                <Input
+                  type="date"
+                  value={filterRangeFrom}
+                  onChange={(e) => setFilterRangeFrom(e.target.value)}
+                  className="h-9 w-36 bg-muted border-border rounded-lg text-xs font-bold"
+                />
+                <span className="text-xs text-muted-foreground font-bold">إلى تاريخ:</span>
+                <Input
+                  type="date"
+                  value={filterRangeTo}
+                  onChange={(e) => setFilterRangeTo(e.target.value)}
+                  className="h-9 w-36 bg-muted border-border rounded-lg text-xs font-bold"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Period Summary Display */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 pt-4 border-t border-border/40 text-right">
+            <div className="p-4 bg-blue-500/5 rounded-2xl border border-blue-500/10">
+              <span className="text-[10px] text-muted-foreground uppercase font-black">قوائم الفترة</span>
+              <div className="text-md md:text-lg font-black font-mono text-blue-500 mt-1">{formatIQD(periodStats.totalInvoices)}</div>
+            </div>
+            <div className="p-4 bg-emerald-500/5 rounded-2xl border border-emerald-500/10">
+              <span className="text-[10px] text-muted-foreground uppercase font-black">تسديدات الفترة</span>
+              <div className="text-md md:text-lg font-black font-mono text-emerald-600 mt-1">{formatIQD(periodStats.totalPayments)}</div>
+            </div>
+            <div className="p-4 bg-purple-500/5 rounded-2xl border border-purple-500/10">
+              <span className="text-[10px] text-muted-foreground uppercase font-black">خصومات الفترة</span>
+              <div className="text-md md:text-lg font-black font-mono text-purple-600 mt-1">{formatIQD(periodStats.totalDiscounts)}</div>
+            </div>
+            <div className="p-4 bg-rose-500/5 rounded-2xl border border-rose-500/10">
+              <span className="text-[10px] text-muted-foreground uppercase font-black">صافي المتبقي للفترة</span>
+              <div className="text-md md:text-lg font-black font-mono text-rose-600 mt-1">{formatIQD(periodStats.totalRemaining)}</div>
+            </div>
+            <div className="p-4 bg-amber-500/5 rounded-2xl border border-amber-500/10 col-span-2 md:col-span-1">
+              <span className="text-[10px] text-muted-foreground uppercase font-black">عدد العمليات للفترة</span>
+              <div className="text-md md:text-lg font-black text-amber-600 mt-1">{periodStats.operationsCount} عملية</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Tabs defaultValue="overview" className="w-full">
         <TabsList className="bg-muted p-1 border border-border w-full justify-start overflow-x-auto rounded-xl h-auto flex flex-nowrap scrollbar-none">
@@ -389,7 +606,7 @@ export const SupplierAccountPage = ({
                 </CardHeader>
                 <CardContent className="p-0">
                   <div className="divide-y divide-border">
-                    {ledgerEntries.slice(-5).reverse().map((entry) => (
+                    {filteredLedgerEntries.slice(-5).reverse().map((entry) => (
                       <div key={entry.id} className="p-4 flex justify-between items-center hover:bg-muted/30 transition-colors">
                         <div className="flex items-center gap-3">
                           <div className={`p-2 rounded-lg ${
@@ -409,7 +626,7 @@ export const SupplierAccountPage = ({
                         </div>
                       </div>
                     ))}
-                    {ledgerEntries.length === 0 && (
+                    {filteredLedgerEntries.length === 0 && (
                       <div className="p-8 text-center text-muted-foreground text-sm italic">لا يوجد سجل عمليات لهذا المورد حتى الآن</div>
                     )}
                   </div>
@@ -437,7 +654,7 @@ export const SupplierAccountPage = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      {ledgerEntries.filter(e => e.operationType === 'invoice').reverse().map((invoice) => (
+                      {filteredLedgerEntries.filter(e => e.operationType === 'invoice').reverse().map((invoice) => (
                         <tr key={invoice.id} className="hover:bg-muted/30 transition-colors group">
                           <td className="px-6 py-4 font-bold text-foreground">{invoice.invoiceNumber}</td>
                           <td className="px-6 py-4 text-center font-mono text-muted-foreground text-xs">{safeFormatDate(invoice.date, 'yyyy/MM/dd')}</td>
@@ -521,7 +738,7 @@ export const SupplierAccountPage = ({
                           </td>
                         </tr>
                       ))}
-                      {ledgerEntries.filter(e => e.operationType === 'invoice').length === 0 && (
+                      {filteredLedgerEntries.filter(e => e.operationType === 'invoice').length === 0 && (
                         <tr>
                           <td colSpan={8} className="py-20 text-center text-muted-foreground">لا توجد فواتير مسجلة</td>
                         </tr>
@@ -531,7 +748,7 @@ export const SupplierAccountPage = ({
                 </div>
                ) : (
                  <div className="divide-y divide-border">
-                    {ledgerEntries.filter(e => e.operationType === 'invoice').reverse().map((invoice) => (
+                    {filteredLedgerEntries.filter(e => e.operationType === 'invoice').reverse().map((invoice) => (
                       <div key={invoice.id} className="p-4 space-y-4 hover:bg-muted/30 transition-colors">
                         <div className="flex justify-between items-start">
                           <div onClick={() => onViewInvoice(invoice)} className="cursor-pointer">
@@ -591,7 +808,7 @@ export const SupplierAccountPage = ({
                         </div>
                       </div>
                     ))}
-                    {ledgerEntries.filter(e => e.operationType === 'invoice').length === 0 && (
+                    {filteredLedgerEntries.filter(e => e.operationType === 'invoice').length === 0 && (
                       <div className="py-20 text-center text-muted-foreground">لا توجد فواتير مسجلة</div>
                     )}
                  </div>
@@ -601,7 +818,7 @@ export const SupplierAccountPage = ({
 
           <TabsContent value="payments" className="animate-in fade-in zoom-in-95 duration-300">
              <div className="space-y-6 relative before:absolute before:right-6 before:top-4 before:bottom-4 before:w-px before:bg-border">
-                {ledgerEntries.filter(e => e.operationType === 'payment').reverse().map((payment) => (
+                {filteredLedgerEntries.filter(e => e.operationType === 'payment').reverse().map((payment) => (
                   <div key={payment.id} className="relative pr-12">
                     <div className="absolute right-[21px] top-1 w-2 h-2 rounded-full bg-emerald-500 border-2 border-background z-10" />
                     <Card className="bg-card border-border overflow-hidden">
@@ -651,7 +868,7 @@ export const SupplierAccountPage = ({
                     </Card>
                   </div>
                 ))}
-                {ledgerEntries.filter(e => e.operationType === 'payment').length === 0 && (
+                {filteredLedgerEntries.filter(e => e.operationType === 'payment').length === 0 && (
                   <div className="py-20 text-center text-muted-foreground italic">لا توجد سجلات دفع لهذا المورد</div>
                 )}
              </div>
@@ -702,7 +919,7 @@ export const SupplierAccountPage = ({
 
           <TabsContent value="bonuses" className="animate-in fade-in zoom-in-95 duration-300">
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {bonuses.reverse().map((bonus) => (
+                {filteredBonuses.reverse().map((bonus) => (
                   <Card key={bonus.id} className="bg-card border-border overflow-hidden">
                     <div className={`h-1.5 w-full ${bonus.status === 'received' ? 'bg-emerald-500' : bonus.status === 'pending' ? 'bg-amber-500' : 'bg-slate-500'}`} />
                     <CardHeader className="p-4">
@@ -744,7 +961,7 @@ export const SupplierAccountPage = ({
                     </CardContent>
                   </Card>
                 ))}
-                {bonuses.length === 0 && (
+                {filteredBonuses.length === 0 && (
                   <div className="col-span-full py-20 text-center text-muted-foreground italic">لا توجد بونصات مسجلة حالياً</div>
                 )}
              </div>
@@ -866,7 +1083,7 @@ export const SupplierAccountPage = ({
 
           <TabsContent value="attachments" className="animate-in fade-in zoom-in-95 duration-300">
              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                {ledgerEntries.filter(e => e.imageUrl || e.receiptImageUrl || (e.imageUrls && e.imageUrls.length > 0)).map((e) => {
+                {filteredLedgerEntries.filter(e => e.imageUrl || e.receiptImageUrl || (e.imageUrls && e.imageUrls.length > 0)).map((e) => {
                   const urls = e.imageUrls && e.imageUrls.length > 0 ? e.imageUrls : [e.imageUrl || e.receiptImageUrl || ''];
                   return urls.filter(u => !!u).map((url, uidx) => (
                     <Card key={`${e.id}-${uidx}`} className="group relative aspect-square overflow-hidden border-border bg-muted hover:border-emerald-500 transition-all">
@@ -896,7 +1113,7 @@ export const SupplierAccountPage = ({
                     </Card>
                   ));
                 })}
-                {ledgerEntries.filter(e => e.imageUrl || e.receiptImageUrl || (e.imageUrls && e.imageUrls.length > 0)).length === 0 && (
+                {filteredLedgerEntries.filter(e => e.imageUrl || e.receiptImageUrl || (e.imageUrls && e.imageUrls.length > 0)).length === 0 && (
                   <div className="col-span-full py-20 text-center text-muted-foreground italic">لا توجد مرفقات صور لهذا الحساب</div>
                 )}
              </div>
@@ -986,7 +1203,7 @@ export const SupplierAccountPage = ({
                               );
                             }
 
-                            const sortedEntries = [...ledgerEntries].filter(e => !e.isDeleted).sort((a,b) => toValidDate(a.date).getTime() - toValidDate(b.date).getTime());
+                            const sortedEntries = [...filteredLedgerEntries].filter(e => !e.isDeleted).sort((a,b) => toValidDate(a.date).getTime() - toValidDate(b.date).getTime());
                             
                             sortedEntries.forEach(e => {
                                let debit = Number(e.debit) || 0;

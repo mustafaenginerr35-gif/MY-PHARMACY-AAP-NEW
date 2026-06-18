@@ -204,7 +204,7 @@ import { googleDriveService, type SyncSettings, type ImageManagementSettings, ty
 import { useGoogleAuth } from './components/AuthProvider';
 import { cn, fileToBase64 } from '@/lib/utils';
 import { toast } from 'sonner';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { NumericFormat } from 'react-number-format';
 import { ExpenseForm } from './components/ExpenseForm';
 import { RevenueForm } from './components/RevenueForm';
@@ -214,6 +214,7 @@ import { SupplierAccountPage } from './components/SupplierAccountPage';
 import { BonusForm } from './components/BonusForm';
 import { InvoiceDetailsPage } from './components/InvoiceDetailsPage';
 import { EmployeesPage } from './components/EmployeesPage';
+import { EmployeePortal } from './components/EmployeePortal';
 import { DeadlineModal } from './components/DeadlineModal';
 import { EmployeeForm } from './components/EmployeeForm';
 import { AttendanceForm } from './components/AttendanceForm';
@@ -233,6 +234,7 @@ import { LossesPage } from './components/LossesPage';
 import { LossForm } from './components/LossForm';
 import { AdminPanel } from './components/AdminPanel';
 import { SalesConsole } from './components/SalesConsole';
+import { MobileLiteMode } from './components/MobileLiteMode';
 
 // Re-using the Invoice Details Dialog fragment from the corrupted file
 type Theme = 'light' | 'dark' | 'system';
@@ -357,6 +359,23 @@ const ViewRevenueDialog = ({
   );
 };
 
+const getSourceLabel = (source?: string): string => {
+  if (!source) return 'رصيد نقد';
+  switch (source) {
+    case 'previous_month':
+      return 'وارد مدور من الشهر السابق';
+    case 'cash_remaining':
+    case 'leftover_cash':
+      return 'كاش متبقي';
+    case 'internal_transfer':
+      return 'تحويل داخلي';
+    case 'other':
+      return 'أخرى';
+    default:
+      return source;
+  }
+};
+
 const AddOpeningCashDialog = ({ 
   isOpen, 
   onOpenChange, 
@@ -444,8 +463,8 @@ const AddOpeningCashDialog = ({
                   <SelectValue placeholder="اختر المصدر" />
                 </SelectTrigger>
                 <SelectContent dir="rtl" className="bg-card border-border rounded-xl">
-                  <SelectItem value="previous_month">وارد سابق</SelectItem>
-                  <SelectItem value="leftover_cash">كاش متبقي</SelectItem>
+                  <SelectItem value="previous_month">وارد مدور من الشهر السابق</SelectItem>
+                  <SelectItem value="cash_remaining">كاش متبقي</SelectItem>
                   <SelectItem value="internal_transfer">تحويل داخلي</SelectItem>
                   <SelectItem value="other">أخرى</SelectItem>
                 </SelectContent>
@@ -584,6 +603,23 @@ export default function App() {
   const { user: googleUser, isDriveLinked, loading: googleAuthLoading, linkDrive, unlinkDrive } = useGoogleAuth();
   const [user, setUser] = useState(auth.currentUser);
   const [appUser, setAppUser] = useState<AppUser | null>(null);
+
+  const [isEmployeePortal, setIsEmployeePortal] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('portal') === 'employee' || localStorage.getItem('employee-portal-view') === 'true';
+  });
+
+  const [preferredViewMode, setPreferredViewMode] = useState<'mobile_lite' | 'desktop_full' | null>(() => {
+    return localStorage.getItem('preferredViewMode') as 'mobile_lite' | 'desktop_full' | null;
+  });
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('portal') === 'employee') {
+      setIsEmployeePortal(true);
+      localStorage.setItem('employee-portal-view', 'true');
+    }
+  }, []);
   
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('theme') as Theme) || 'dark');
 
@@ -660,6 +696,16 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('pharma-app-mode-setting', appModeSetting);
   }, [appModeSetting]);
+
+  const showMobileLite = useMemo(() => {
+    if (preferredViewMode === 'desktop_full') return false;
+    if (preferredViewMode === 'mobile_lite') return true;
+    return effectiveAppMode === 'mobile';
+  }, [preferredViewMode, effectiveAppMode]);
+
+  const isFullDesktopModeOnMobile = useMemo(() => {
+    return effectiveAppMode === 'mobile' && !showMobileLite;
+  }, [effectiveAppMode, showMobileLite]);
 
   // Read regular user's linked devices for setting tab view
   const [myLicenseDevices, setMyLicenseDevices] = useState<any[]>([]);
@@ -807,8 +853,8 @@ export default function App() {
     if (isAdmin) {
       return adminSelectedOwnerId;
     }
-    return appUser?.userId || getEffectiveUserInfo().uid || 'demo-user';
-  }, [appUser?.userId, adminSelectedOwnerId, isAdmin]);
+    return appUser?.ownerId || appUser?.userId || getEffectiveUserInfo().ownerId || 'demo-user';
+  }, [appUser?.ownerId, appUser?.userId, adminSelectedOwnerId, isAdmin]);
 
   // Queries
   const ownerQuery = useMemo(() => {
@@ -818,9 +864,9 @@ export default function App() {
       }
       return [where('ownerId', '==', adminSelectedOwnerId)];
     }
-    const activeUid = appUser?.userId || getEffectiveUserInfo().uid || 'demo-user';
+    const activeUid = appUser?.ownerId || appUser?.userId || getEffectiveUserInfo().ownerId || 'demo-user';
     return [where('ownerId', '==', activeUid)];
-  }, [appUser?.userId, adminSelectedOwnerId, isAdmin]);
+  }, [appUser?.ownerId, appUser?.userId, adminSelectedOwnerId, isAdmin]);
 
   const branchesQuery = useMemo(() => ownerQuery, [ownerQuery]);
   const transactionsQuery = useMemo(() => ownerQuery, [ownerQuery]);
@@ -859,6 +905,36 @@ export default function App() {
   const { data: activationCodes = [], refetch: refetchActivationCodes } = useFirebaseQuery<ActivationCode>('activationCodes');
   const { data: activationRequests = [], refetch: refetchActivationRequests } = useFirebaseQuery<ActivationRequest>('activationRequests', ownerQuery, currentEffectiveOwnerId);
   const { data: recoveryRequests = [], refetch: refetchRecoveryRequests } = useFirebaseQuery<RecoveryRequest>('recoveryRequests', ownerQuery, currentEffectiveOwnerId);
+  
+  const currentBranchOpeningCash = useMemo(() => {
+    const activeBranchId = currentBranchId || 'main';
+    const branchRecords = rawOpeningCash.filter(o => o.branchId === activeBranchId);
+    if (branchRecords.length === 0) return undefined;
+    return [...branchRecords].sort((a, b) => {
+      const aDate = toValidDate(a.updatedAt || a.createdAt || a.date).getTime();
+      const bDate = toValidDate(b.updatedAt || b.createdAt || b.date).getTime();
+      return bDate - aDate;
+    })[0];
+  }, [rawOpeningCash, currentBranchId]);
+
+  useEffect(() => {
+    if (currentBranchOpeningCash) {
+      setOpeningCashAmount(currentBranchOpeningCash.amount.toString());
+      let dateString = '';
+      try {
+        const validDate = toValidDate(currentBranchOpeningCash.date);
+        dateString = validDate.toISOString().split('T')[0];
+      } catch (e) {
+        dateString = new Date().toISOString().split('T')[0];
+      }
+      setOpeningCashDate(dateString);
+      setOpeningCashNotes(currentBranchOpeningCash.notes || '');
+    } else {
+      setOpeningCashAmount('');
+      setOpeningCashDate(new Date().toISOString().split('T')[0]);
+      setOpeningCashNotes('');
+    }
+  }, [currentBranchOpeningCash]);
   
   const [remoteConfig, setRemoteConfig] = useState<SystemConfig | null>(null);
   const [loadingRemoteConfig, setLoadingRemoteConfig] = useState(true);
@@ -1126,6 +1202,20 @@ export default function App() {
 
     return filtered;
   }, [entities, entityTypeFilter, entitySearch]);
+
+  const suppliersWithDebt = useMemo(() => {
+    return entities.filter(e => !e.deletedAt && e.balance > 0);
+  }, [entities]);
+
+  const highestDebtSupplier = useMemo(() => {
+    if (suppliersWithDebt.length === 0) return null;
+    return [...suppliersWithDebt].sort((a, b) => b.balance - a.balance)[0];
+  }, [suppliersWithDebt]);
+
+  const lowestDebtSupplier = useMemo(() => {
+    if (suppliersWithDebt.length === 0) return null;
+    return [...suppliersWithDebt].sort((a, b) => a.balance - b.balance)[0];
+  }, [suppliersWithDebt]);
 
   const hasDemoEntities = useMemo(() => {
     return appUser?.role === 'super_admin' && rawEntities.some(e => e.ownerId === 'demo-user');
@@ -1744,6 +1834,36 @@ export default function App() {
   const [isLedgerOpen, setIsLedgerOpen] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [isAddInvoiceOpen, setIsAddInvoiceOpen] = useState(false);
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
+  const [bulkFromDate, setBulkFromDate] = useState<string>('');
+  const [bulkToDate, setBulkToDate] = useState<string>('');
+  const [bulkSupplierId, setBulkSupplierId] = useState<string>('');
+  const [isBulkPaymentModalOpen, setIsBulkPaymentModalOpen] = useState(false);
+  const [isProcessingBulkPayment, setIsProcessingBulkPayment] = useState(false);
+  const [bulkPaymentReport, setBulkPaymentReport] = useState<{ successes: any[], failures: any[] } | null>(null);
+
+  const selectedInvoices = useMemo(() => {
+    return allLedgerEntries.filter(e => selectedInvoiceIds.includes(e.id || ''));
+  }, [selectedInvoiceIds, allLedgerEntries]);
+
+  const bulkStats = useMemo(() => {
+    let totalAmount = 0;
+    let totalDiscount = 0;
+    let totalRemainingToPay = 0;
+
+    selectedInvoices.forEach(inv => {
+      totalAmount += Number(inv.amount || 0);
+      totalDiscount += Number(inv.discount || 0);
+      totalRemainingToPay += Number(inv.remainingAmount || 0);
+    });
+
+    return {
+      count: selectedInvoices.length,
+      totalAmount,
+      totalDiscount,
+      totalRemainingToPay
+    };
+  }, [selectedInvoices]);
   const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
   const [isMultiEntryOpen, setIsMultiEntryOpen] = useState(false);
   const [isMultiPaymentOpen, setIsMultiPaymentOpen] = useState(false);
@@ -1781,6 +1901,10 @@ export default function App() {
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
   const [isAddLoanOpen, setIsAddLoanOpen] = useState(false);
   const [isAddOpeningCashOpen, setIsAddOpeningCashOpen] = useState(false);
+  const [openingCashAmount, setOpeningCashAmount] = useState<string>('');
+  const [openingCashDate, setOpeningCashDate] = useState<string>('');
+  const [openingCashNotes, setOpeningCashNotes] = useState<string>('');
+  const [isSavingOpeningCash, setIsSavingOpeningCash] = useState(false);
   const [isAddBonusOpen, setIsAddBonusOpen] = useState(false);
   const [isAddLossOpen, setIsAddLossOpen] = useState(false);
   const [loanImageFiles, setLoanImageFiles] = useState<File[]>([]);
@@ -1834,6 +1958,49 @@ export default function App() {
 
   const [isAppAuthenticated, setIsAppAuthenticated] = useState(() => localStorage.getItem('pharma-is-authenticated') === 'true');
   const [authStatusLoading, setAuthStatusLoading] = useState(true);
+  const [firebaseConnError, setFirebaseConnError] = useState<string | null>(null);
+  const [checkingFirebase, setCheckingFirebase] = useState(true);
+
+  // Startup Connection Check
+  const performStartupCheck = useCallback(async () => {
+    try {
+      setCheckingFirebase(true);
+      const isConnected = await firebaseService.testFirebaseConnection();
+      if (!isConnected) {
+        setFirebaseConnError("عذراً، فشل الاتصال بقاعدة البيانات السحابية Firebase Firestore. يرجى التحقق من جودة اتصال الإنترنت والتحقق من حالة النظام والوصول.");
+      } else {
+        setFirebaseConnError(null);
+      }
+    } catch (err: any) {
+      setFirebaseConnError(`تعذر الاتصال بالخادم السحابي لـ Firebase: ${err.message || err}`);
+    } finally {
+      setCheckingFirebase(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    performStartupCheck();
+  }, [performStartupCheck]);
+
+  // Daily Backup Trigger
+  useEffect(() => {
+    if (isAppAuthenticated && currentEffectiveOwnerId && currentEffectiveOwnerId !== 'demo-user') {
+      const triggerDailyBackup = async () => {
+        try {
+          const res = await firebaseService.checkAndPerformDailyBackup(currentEffectiveOwnerId);
+          if (res.success && !res.alreadyDone) {
+            toast.success(`تم إجراء النسخ الاحتياطي التلقائي اليومي بنجاح! السجلات المحفوظة: ${res.totalRecordsCount}`);
+          }
+        } catch (backupErr) {
+          console.error("[Startup] Daily backup errored:", backupErr);
+        }
+      };
+      // Delay slightly after initial loading to optimize client-side responsiveness
+      const timeoutId = setTimeout(triggerDailyBackup, 2500);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [isAppAuthenticated, currentEffectiveOwnerId]);
+
   const [authUsername, setAuthUsername] = useState(''); // serves as email or username
   const [authPassword, setAuthPassword] = useState('');
   const [authConfirmPassword, setAuthConfirmPassword] = useState('');
@@ -1892,29 +2059,7 @@ export default function App() {
     };
   }, [authStep, otpRemainingSeconds]);
 
-  // One-time Admin Reset Trigger
-  useEffect(() => {
-    const hasReset = localStorage.getItem('pharma-one-time-reset-v2');
-    const { authenticated, uid } = getEffectiveUserInfo();
-    
-    if (!hasReset && authenticated) {
-      console.log(`[Reset] One-time reset v2 triggered for user: ${uid}`);
-      const performReset = async () => {
-        try {
-          const success = await DataPersistenceService.resetTestData();
-          if (success) {
-            localStorage.setItem('pharma-one-time-reset-v2', 'true');
-            toast.success("تم تصفير البيانات بنجاح وبدء اختبار جديد...");
-            setTimeout(() => window.location.reload(), 2000);
-          }
-        } catch (err) {
-          console.error("Reset trigger failed:", err);
-          toast.error("فشل تصفير البيانات. يرجى مراجعة الصلاحيات.");
-        }
-      };
-      performReset();
-    }
-  }, [branches.length, isAppAuthenticated]); // Trigger when data is ready or auth changes
+  // One-time Admin Reset Trigger has been completely disabled to prevent automatic data deletion and cleanups.
 
   const [isEditInvoiceOpen, setIsEditInvoiceOpen] = useState(false);
   const [isDeleteInvoiceOpen, setIsDeleteInvoiceOpen] = useState(false);
@@ -2124,23 +2269,22 @@ export default function App() {
     refreshFinancialData();
   }, [rawTransactions, rawAllLedgerEntries, rawOpeningCash, employeeAttendance, expiredDamagedLosses, rawEntities, customerDebts]);
 
+  // Stats logic using Central FinancialAggregationService
+  const lastResultRef = useRef<any>(null);
+
   // Data reactivity and synchronization logic
   const [refreshKey, setRefreshKey] = useState(0);
-  const recalculateReports = () => {
-    if (typeof lastResultRef !== 'undefined') {
-      (lastResultRef as any).current = null;
+  const recalculateReports = (showToast = false) => {
+    if (lastResultRef && lastResultRef.current !== undefined) {
+      lastResultRef.current = null;
     }
     setRefreshKey(prev => prev + 1);
-    console.log("[Stats] Manual recalculation triggered at:", new Date().toLocaleTimeString());
-    toast.success("تم تصفير ذاكرة التقارير وإعادة الحساب بنجاح (Live)");
+    console.log("[Stats] Recalculation triggered. ShowToast:", showToast, "at:", new Date().toLocaleTimeString());
   };
 
   const refreshFinancialData = () => {
-    recalculateReports();
+    recalculateReports(false);
   };
-
-  // Stats logic using Central FinancialAggregationService
-  const lastResultRef = useRef<any>(null);
 
   const stats = useMemo(() => {
     const today = startOfDay(new Date());
@@ -2209,6 +2353,8 @@ export default function App() {
 
     return {
       dailyRevenue: dailyRevenueResult.totalRevenue,
+      dailyExpenses: dailyRevenueResult.totalExpenses + dailyRevenueResult.totalSalaries + dailyRevenueResult.totalLosses,
+      dailyNetProfit: dailyRevenueResult.netResult,
       monthlyRevenue: s.totalRevenue,
       monthlyGrossProfit: s.totalProfit,
       monthlyGeneralExpense: s.totalExpenses,
@@ -2227,7 +2373,11 @@ export default function App() {
       openLoansInAmount: s.openLoansInAmount,
       loansDueToMe: allTimeResult.totalLoansDueToMe,
       monthlySupplierPayments: s.totalPayments,
-      openingCashBalance: s.openingCash
+      openingCashBalance: s.openingCash,
+      openingCashOriginal: s.openingCashOriginal,
+      openingCashRemaining: s.openingCashRemaining,
+      postOpeningRevenue: s.postOpeningRevenue,
+      postOpeningRevenueRemaining: s.postOpeningRevenueRemaining,
     };
   }, [allLedgerEntries, transactions, entities, historicalRecords, currentBranchId, expiredDamagedLosses, rawOpeningCash, employeeAttendance, customerDebts, refreshKey]);
 
@@ -3768,6 +3918,189 @@ export default function App() {
     }
   };
 
+  const handleSelectInvoicesWithinRange = () => {
+    const unpaid = allLedgerEntries.filter(e => 
+      e.operationType === 'invoice' && 
+      e.paymentStatus !== 'paid' && 
+      e.isCommitted === true && 
+      e.isDeleted !== true
+    );
+
+    const matchedIds: string[] = [];
+
+    unpaid.forEach(inv => {
+      const invDateStr = safeFormatDate(toValidDate(inv.date), 'yyyy-MM-dd', { useAr: false });
+      
+      // Check bulk supplier if specified
+      if (bulkSupplierId && inv.accountId !== bulkSupplierId) {
+        return;
+      }
+
+      // Check from date
+      if (bulkFromDate && invDateStr < bulkFromDate) {
+        return;
+      }
+
+      // Check to date
+      if (bulkToDate && invDateStr > bulkToDate) {
+        return;
+      }
+
+      if (inv.id) {
+        matchedIds.push(inv.id);
+      }
+    });
+
+    if (matchedIds.length === 0) {
+      toast.info("لم يتم العثور على أي قوائم غير مسددة تطابق الفلاتر المحددة.");
+    } else {
+      setSelectedInvoiceIds(matchedIds);
+      toast.success(`تم تحديد عدد (${matchedIds.length}) من القوائم بنجاح!`);
+    }
+  };
+
+  const handleExecuteBulkPayment = async () => {
+    if (isProcessingBulkPayment) return;
+    setIsProcessingBulkPayment(true);
+    setBulkPaymentReport(null);
+
+    const selectedInvoices = allLedgerEntries.filter(e => selectedInvoiceIds.includes(e.id || ''));
+    if (selectedInvoices.length === 0) {
+      toast.error("يرجى اختيار قائمة واحدة على الأقل للتسديد.");
+      setIsProcessingBulkPayment(false);
+      return;
+    }
+
+    const successes: Array<{ invoiceNumber: string; amount: number }> = [];
+    const failures: Array<{ invoiceNumber: string; error: string }> = [];
+    const supplierEffects: { [supplierId: string]: number } = {};
+
+    for (const inv of selectedInvoices) {
+      try {
+        const paymentAmount = inv.remainingAmount || 0;
+        if (paymentAmount <= 0) {
+          // already paid
+          continue;
+        }
+
+        // 1. Update invoice LedgerEntry to paid status
+        const newPaidAmount = (inv.paidAmount || 0) + paymentAmount;
+        await firebaseService.updateDocument('ledgerEntries', inv.id!, {
+          paidAmount: newPaidAmount,
+          remainingAmount: 0,
+          paymentStatus: 'paid',
+          updatedAt: new Date()
+        } as any);
+
+        // 2. Add individual payment record
+        const paymentRecord = {
+          accountId: inv.accountId,
+          accountName: inv.accountName,
+          accountType: inv.accountType || 'supplier',
+          date: new Date(),
+          operationType: 'payment',
+          sourceType: 'payment',
+          paymentSource: 'invoice',
+          amount: paymentAmount,
+          discount: 0,
+          discountType: 'value',
+          discountValue: 0,
+          refundAmount: 0,
+          netAmount: paymentAmount,
+          linkedInvoiceNumber: inv.invoiceNumber || '',
+          linkedInvoiceId: inv.id!,
+          balanceAfterOperation: 0,
+          notes: `تسديد جماعي للقائمة رقـم: ${inv.invoiceNumber}`,
+          ownerId: appUser?.userId || 'demo-user',
+          branchId: currentBranchId || undefined,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          
+          type: 'payment',
+          category: 'التسديدات',
+          debit: 0,
+          credit: paymentAmount,
+          description: `تسديد جماعي للقائمة: ${inv.accountName} - ${inv.invoiceNumber}`,
+          entityId: inv.accountId,
+          entityName: inv.accountName,
+          invoiceNumber: inv.invoiceNumber || '',
+          createdBy: appUser?.userId || 'demo-user',
+          userId: appUser?.userId || 'demo-user'
+        };
+
+        await firebaseService.saveFinancialRecordOnce(paymentRecord as any);
+
+        // Group total payment per supplier
+        supplierEffects[inv.accountId] = (supplierEffects[inv.accountId] || 0) + paymentAmount;
+
+        successes.push({
+          invoiceNumber: inv.invoiceNumber || 'بدون رقم',
+          amount: paymentAmount
+        });
+      } catch (err: any) {
+        console.error(`Error paying invoice ${inv.invoiceNumber}:`, err);
+        failures.push({
+          invoiceNumber: inv.invoiceNumber || 'بدون رقم',
+          error: err.message || JSON.stringify(err)
+        });
+      }
+    }
+
+    // 3. Update entity balances & Create entityActivity records
+    for (const [supplierId, totalEffect] of Object.entries(supplierEffects)) {
+      try {
+        const supplierEntity = entities.find(e => e.id === supplierId);
+        if (supplierEntity) {
+          await firebaseService.updateDocument('entities', supplierId, {
+            balance: (supplierEntity.balance || 0) - totalEffect,
+            totalPayments: (supplierEntity.totalPayments || 0) + 1,
+            totalPaidAmount: (supplierEntity.totalPaidAmount || 0) + totalEffect,
+            updatedAt: new Date()
+          } as any);
+
+          const supplierSuccessInvoices = successes
+            .filter(s => selectedInvoices.some(inv => inv.invoiceNumber === s.invoiceNumber && inv.accountId === supplierId))
+            .map(s => s.invoiceNumber)
+            .join(', ');
+
+          await firebaseService.addDocument('entityActivities', {
+            entityId: supplierId,
+            type: 'bulk_payment',
+            action: 'تسديد جماعي للقوائم',
+            details: `تسديد جماعي بمبلغ إجمالي ${formatNumberWithCommas(totalEffect)} د.ع. للقوائم: ${supplierSuccessInvoices}`,
+            performedBy: appUser?.username || 'user',
+            createdAt: new Date(),
+            ownerId: appUser?.userId || 'demo-user',
+            branchId: currentBranchId || undefined
+          });
+        }
+      } catch (entityErr) {
+        console.error(`Failed to update supplier entity balance for ${supplierId}:`, entityErr);
+      }
+    }
+
+    // Call notify/refetch trigger manually if needed
+    try {
+      refetchLedgerEntries();
+      refetchEntities();
+      refetchActivities();
+    } catch (e) {
+      console.warn("Could not refetch details directly:", e);
+    }
+
+    // Build the final report
+    setBulkPaymentReport({ successes, failures });
+    setIsProcessingBulkPayment(false);
+
+    if (failures.length === 0) {
+      toast.success(`تم تسديد عدد ${successes.length} قائمة بنجاح!`);
+      setSelectedInvoiceIds([]);
+      setIsBulkPaymentModalOpen(false);
+    } else {
+      toast.warning(`تم تسديد ${successes.length} بنجاح وفشل ${failures.length} قائمة. يرجى الاطلاع على التقرير.`);
+    }
+  };
+
   const handleEditInvoice = async (data: any) => {
     console.log("Updating record... (Invoice)");
     if (!viewingInvoice?.id || !selectedEntity?.id) return;
@@ -4590,6 +4923,166 @@ export default function App() {
     }
   };
 
+  const handleSaveOpeningCashSettings = async () => {
+    if (!appUser) {
+      toast.error('يجب تسجيل الدخول أولاً');
+      return;
+    }
+    const amountVal = parseFloat(openingCashAmount) || 0;
+    const dateObj = openingCashDate ? new Date(openingCashDate) : new Date();
+    const month = dateObj.getMonth() + 1;
+    const year = dateObj.getFullYear();
+    const notesStr = openingCashNotes || '';
+    const activeBranchId = currentBranchId || 'main';
+    const activeUserId = appUser.userId;
+
+    if (!activeUserId) {
+      toast.error('لم يتم تحديد هوية المستخدم');
+      return;
+    }
+
+    setIsSavingOpeningCash(true);
+    try {
+      const branchRecords = rawOpeningCash.filter(o => o.branchId === activeBranchId);
+      
+      let masterRecord = currentBranchOpeningCash;
+      if (!masterRecord && branchRecords.length > 0) {
+        const sorted = [...branchRecords].sort((a, b) => {
+          const aDate = toValidDate(a.updatedAt || a.createdAt || a.date).getTime();
+          const bDate = toValidDate(b.updatedAt || b.createdAt || b.date).getTime();
+          return bDate - aDate;
+        });
+        masterRecord = sorted[0];
+      }
+
+      let cashId = '';
+      if (masterRecord?.id) {
+        cashId = masterRecord.id;
+        // 1. Update main openingCash document
+        await firebaseService.updateDocument('openingCash', cashId, {
+          amount: amountVal,
+          date: dateObj,
+          month,
+          year,
+          notes: notesStr,
+          updatedAt: new Date()
+        });
+
+        // 2. Find and update corresponding ledgerEntries document
+        const correspondingLedgerEntry = rawAllLedgerEntries.find(
+          e => e.sourceType === 'opening_cash' && e.sourceId === cashId
+        );
+
+        if (correspondingLedgerEntry?.id) {
+          await firebaseService.updateDocument('ledgerEntries', correspondingLedgerEntry.id, {
+            amount: amountVal,
+            credit: amountVal,
+            date: dateObj,
+            month,
+            year,
+            description: `رصيد مدور: ${notesStr}`,
+            updatedAt: new Date()
+          });
+        } else {
+          await firebaseService.saveFinancialRecordOnce({
+            amount: amountVal,
+            date: dateObj,
+            month,
+            year,
+            notes: notesStr,
+            branchId: activeBranchId,
+            ownerId: activeUserId,
+            sourceType: 'opening_cash',
+            sourceId: cashId,
+            type: 'opening_balance',
+            operationType: 'opening_balance',
+            debit: 0,
+            credit: amountVal,
+            category: 'أرصدة افتتاحية',
+            description: `رصيد مدور: ${notesStr}`,
+          });
+        }
+
+        // 3. Clean up any extra duplicate openingCash/ledger entries for this branch
+        const duplicates = branchRecords.filter(r => r.id !== cashId);
+        for (const duplicate of duplicates) {
+          try {
+            await firebaseService.deleteDocument('openingCash', duplicate.id);
+            const relatedLedgers = rawAllLedgerEntries.filter(
+              e => e.sourceType === 'opening_cash' && e.sourceId === duplicate.id
+            );
+            for (const relLedger of relatedLedgers) {
+              await firebaseService.deleteDocument('ledgerEntries', relLedger.id);
+            }
+          } catch (e) {
+            console.error("Cleanup error for duplicate opening cash:", e);
+          }
+        }
+      } else {
+        // 1. Create a dynamic first value automatically
+        const openingCashData = {
+          date: dateObj,
+          month,
+          year,
+          amount: amountVal,
+          branchId: activeBranchId,
+          notes: notesStr,
+          source: 'other' as const,
+          ownerId: activeUserId,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+
+        cashId = await firebaseService.addDocument('openingCash', openingCashData);
+
+        // 2. Add to unified ledger
+        await firebaseService.saveFinancialRecordOnce({
+          ...openingCashData,
+          sourceType: 'opening_cash',
+          sourceId: cashId,
+          type: 'opening_balance',
+          operationType: 'opening_balance',
+          debit: 0,
+          credit: amountVal,
+          amount: amountVal,
+          category: 'أرصدة افتتاحية',
+          description: `رصيد مدور: ${notesStr}`,
+        });
+      }
+
+      // 3. Activity reporting
+      const activityColRef = collection(db, 'entityActivities');
+      const activityDocRef = doc(activityColRef);
+      await setDoc(activityDocRef, {
+        id: activityDocRef.id,
+        entityId: 'opening_cash',
+        type: 'update_entity',
+        action: 'تعديل الوارد الافتتاحي',
+        details: `تم تعديل الوارد الافتتاحي للصيدلية إلى ${formatNumberWithCommas(amountVal)} د.ع بتاريخ ${dateObj.toLocaleDateString('ar-EG')}`,
+        performedBy: appUser?.username || 'user',
+        createdAt: new Date(),
+        ownerId: activeUserId,
+        branchId: activeBranchId
+      });
+
+      // 4. Force state sync across queries
+      firebaseService.notifyCollectionChange('openingCash');
+      firebaseService.notifyCollectionChange('ledgerEntries');
+      firebaseService.notifyCollectionChange('entityActivities');
+
+      if (typeof refetchOpeningCash === 'function') await refetchOpeningCash();
+      if (typeof refetchLedgerEntries === 'function') await refetchLedgerEntries();
+      if (typeof refetchActivities === 'function') await refetchActivities();
+      
+      toast.success('تم تحديث الوارد الافتتاحي بنجاح وإعادة احتساب المؤشرات المالية.');
+    } catch (err) {
+      console.error("Failed to update opening cash settings:", err);
+      toast.error('حدث خطأ أثناء تحديث الوارد الافتتاحي');
+    } finally {
+      setIsSavingOpeningCash(false);
+    }
+  };
+
   const handleDeleteLoss = async (loss: ExpiredDamagedLoss) => {
     triggerDelete(
       'حذف سجل التالف/المنتهي',
@@ -5304,8 +5797,8 @@ export default function App() {
         toast.error('لم يتم العثور على المعاملة');
       }
     } else if (type === 'opening_cash') {
-      setActiveTab('financial-settings');
-      toast.info('جاري الانتقال للإعدادات المالية');
+      setActiveTab('settings');
+      toast.info('جاري الانتقال للإعدادات المالية في شاشة الإعدادات');
     } else {
       toast.info('عرض التفاصيل لهذا النوع غير متاح حالياً');
     }
@@ -5334,8 +5827,8 @@ export default function App() {
     } else if (type === 'opening_cash') {
        const o = rawOpeningCash.find(item => item.id === id);
        if (o) {
-         setActiveTab('financial-settings');
-         toast.info('يمكن تعديل الرصيد الافتتاحي من الإعدادات المالية');
+         setActiveTab('settings');
+         toast.info('يمكن تعديل الرصيد الافتتاحي من الإعدادات المالية في شاشة الإعدادات');
        }
     }
   };
@@ -5419,7 +5912,7 @@ export default function App() {
     toast.success('تم تسجيل الخروج بنجاح');
   };
 
-  if (googleAuthLoading || authStatusLoading) {
+  if (googleAuthLoading || authStatusLoading || checkingFirebase) {
     return (
       <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background" dir="rtl">
         <motion.div 
@@ -5432,8 +5925,60 @@ export default function App() {
         </motion.div>
         <div className="flex flex-col items-center">
           <p className="text-foreground font-black text-lg">صيدليتي</p>
-          <p className="text-muted-foreground font-bold text-sm">جاري تحميل بياناتك بأمان...</p>
+          <p className="text-muted-foreground font-bold text-sm">
+            {checkingFirebase ? "جاري التحقق من الاتصال الآمن بـ Firebase..." : "جاري تحميل بياناتك بأمان..."}
+          </p>
         </div>
+      </div>
+    );
+  }
+
+  if (isEmployeePortal) {
+    return (
+      <EmployeePortal onBackToAdmin={() => {
+        setIsEmployeePortal(false);
+        localStorage.removeItem('employee-portal-view');
+        const url = new URL(window.location.href);
+        url.searchParams.delete('portal');
+        window.history.replaceState({}, '', url.toString());
+      }} />
+    );
+  }
+
+  if (firebaseConnError) {
+    return (
+      <div className="h-screen w-full flex flex-col items-center justify-center p-6 bg-background text-foreground" dir="rtl">
+        <motion.div 
+          initial={{ scale: 0.95, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="max-w-md w-full bg-card border border-rose-500/20 rounded-3xl p-8 text-center space-y-6 shadow-2xl relative overflow-hidden"
+        >
+          {/* Decorative Red light error ambient */}
+          <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/10 blur-3xl -mr-16 -mt-16" />
+
+          <div className="bg-rose-500/20 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto">
+            <ShieldAlert className="h-8 w-8 text-rose-500 animate-pulse animate-bounce" />
+          </div>
+
+          <div className="space-y-2">
+            <h1 className="text-xl font-black text-foreground">خطأ في الاتصال بقاعدة البيانات السحابية</h1>
+            <p className="text-muted-foreground text-sm leading-relaxed">
+              {firebaseConnError}
+            </p>
+          </div>
+
+          <div className="p-4 bg-rose-500/5 rounded-2xl border border-rose-500/10 text-xs text-rose-500/80 font-mono text-center">
+            تأكد من استقرار شبكة الإنترنت والاتصال السحابي، ثم اضغط على زر "إعادة المحاولة" أدناه للتحقق مجدداً.
+          </div>
+
+          <Button 
+            className="w-full h-12 rounded-xl font-black bg-rose-600 hover:bg-rose-700 text-white gap-2 flex items-center justify-center cursor-pointer"
+            onClick={performStartupCheck}
+          >
+            <RefreshCw className="h-4 w-4" />
+            <span>إعادة محاولة الاتصال</span>
+          </Button>
+        </motion.div>
       </div>
     );
   }
@@ -6414,14 +6959,14 @@ export default function App() {
         </DialogContent>
       </Dialog>
 
-      {/* Sidebar Navigation */}
-      <aside 
-        className={`fixed top-0 right-0 z-50 h-screen bg-sidebar border-l border-border transition-all duration-300 flex flex-col ${
-          effectiveAppMode === 'laptop' 
-            ? (isSidebarCollapsed ? 'w-20' : 'w-64') 
-            : (isMobileMenuOpen ? 'w-64' : 'w-0 -mr-64')
-        }`}
-      >
+      {!showMobileLite && (
+        <aside 
+          className={`fixed top-0 right-0 z-50 h-screen bg-sidebar border-l border-border transition-all duration-300 flex flex-col ${
+            effectiveAppMode === 'laptop' 
+              ? (isSidebarCollapsed ? 'w-20' : 'w-64') 
+              : (isMobileMenuOpen ? 'w-64' : 'w-0 -mr-64')
+          }`}
+        >
         <div className="flex h-16 items-center px-6 gap-3 border-b border-sidebar-border shrink-0">
           <div className="bg-primary text-primary-foreground p-1.5 rounded-lg shrink-0 overflow-hidden">
             <Package className="h-5 w-5" />
@@ -6447,13 +6992,13 @@ export default function App() {
                   setActiveTab(item.id);
                   if (effectiveAppMode === 'mobile') setIsMobileMenuOpen(false);
                 }}
-                className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all group relative ${
+                className={`w-full flex items-center gap-3 px-3.5 py-3.5 rounded-xl transition-all duration-300 group relative cursor-pointer active:scale-95 ${
                   isActive 
-                    ? 'bg-sidebar-accent text-sidebar-accent-foreground shadow-sm' 
+                    ? 'bg-primary/10 text-primary shadow-[0_4px_18px_rgba(16,185,129,0.15)] border-r-4 border-primary font-black' 
                     : 'text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50'
                 }`}
               >
-                <Icon className={`h-5 w-5 shrink-0 transition-colors ${isActive ? 'text-sidebar-primary' : 'group-hover:text-sidebar-primary/80'}`} />
+                <Icon className={`h-5 w-5 shrink-0 transition-transform duration-300 ${isActive ? 'text-primary scale-110 drop-shadow-[0_0_8px_rgba(16,185,129,0.7)]' : 'group-hover:text-primary group-hover:scale-105'}`} />
                 {(effectiveAppMode === 'mobile' || !isSidebarCollapsed) && (
                   <span className="font-bold text-sm whitespace-nowrap">{item.label}</span>
                 )}
@@ -6463,10 +7008,10 @@ export default function App() {
                   </span>
                 )}
                 {item.badge > 0 && effectiveAppMode === 'laptop' && isSidebarCollapsed && (
-                   <span className="absolute top-2 left-2 block h-2 w-2 rounded-full bg-rose-600 border border-background" />
+                   <span className="absolute top-2 left-2 block h-2 w-2 rounded-full bg-rose-600 border border-background animate-pulse" />
                 )}
                 {isActive && (
-                  <div className="absolute left-0 top-1/2 -translate-y-1/2 h-8 w-1 bg-sidebar-primary rounded-r-full" />
+                  <div className="absolute left-0 top-1/2 -translate-y-1/2 h-8 w-1 bg-primary rounded-r-full drop-shadow-[0_0_8px_rgba(16,185,129,0.7)]" />
                 )}
               </button>
             );
@@ -6479,21 +7024,21 @@ export default function App() {
               setActiveTab('settings');
               if (effectiveAppMode === 'mobile') setIsMobileMenuOpen(false);
             }}
-            className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all ${
+            className={`w-full flex items-center gap-3 px-3.5 py-3.5 rounded-xl transition-all duration-300 group cursor-pointer active:scale-95 ${
               activeTab === 'settings' 
-                ? 'bg-sidebar-accent text-sidebar-accent-foreground shadow-sm' 
+                ? 'bg-primary/10 text-primary shadow-[0_4px_18px_rgba(16,185,129,0.15)] border-r-4 border-primary font-black' 
                 : 'text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50'
             }`}
           >
-            <Settings className={`h-5 w-5 shrink-0 ${activeTab === 'settings' ? 'text-sidebar-primary' : ''}`} />
+            <Settings className={`h-5 w-5 shrink-0 transition-transform duration-300 ${activeTab === 'settings' ? 'text-primary scale-110 drop-shadow-[0_0_8px_rgba(16,185,129,0.7)]' : 'group-hover:text-primary group-hover:scale-105'}`} />
             {(effectiveAppMode === 'mobile' || !isSidebarCollapsed) && <span className="font-bold text-sm">الإعدادات</span>}
           </button>
           
           <button
             onClick={handleLogout}
-            className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-rose-500 hover:bg-rose-500/10 hover:text-rose-600 transition-all font-bold text-sm"
+            className="w-full flex items-center gap-3 px-3.5 py-3.5 rounded-xl text-rose-500 hover:bg-rose-500/10 hover:text-rose-600 transition-all duration-300 font-bold text-sm cursor-pointer active:scale-95 group"
           >
-            <LogOut className="h-5 w-5 shrink-0" />
+            <LogOut className="h-5 w-5 shrink-0 transition-transform duration-300 group-hover:scale-110 group-hover:translate-x-[-2px]" />
             {(effectiveAppMode === 'mobile' || !isSidebarCollapsed) && <span>تسجيل الخروج</span>}
           </button>
 
@@ -6509,9 +7054,10 @@ export default function App() {
           )}
         </div>
       </aside>
+      )}
 
       {/* Backdrop for mobile menu */}
-      {effectiveAppMode === 'mobile' && isMobileMenuOpen && (
+      {!showMobileLite && effectiveAppMode === 'mobile' && isMobileMenuOpen && (
         <div 
           className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" 
           onClick={() => setIsMobileMenuOpen(false)}
@@ -6519,7 +7065,7 @@ export default function App() {
       )}
 
       {/* Bottom Navigation for Mobile */}
-      {effectiveAppMode === 'mobile' && (
+      {!showMobileLite && effectiveAppMode === 'mobile' && (
         <div className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border flex items-center justify-around h-16 px-2 md:hidden">
           {[
             { id: 'finance', label: 'الرئيسية', icon: LayoutDashboard },
@@ -6559,12 +7105,51 @@ export default function App() {
       )}
 
       {/* Main Content Area */}
-      <div className={`flex-1 flex flex-col transition-all duration-300 w-full min-w-0 ${effectiveAppMode === 'laptop' ? (isSidebarCollapsed ? 'mr-20' : 'mr-64') : 'mr-0 pb-20 md:pb-0'}`}>
-        <header className="sticky top-0 z-40 h-16 md:h-20 border-b border-border bg-background/80 backdrop-blur-md px-4 md:px-8 flex items-center justify-between gap-3 md:gap-8">
+      <div className={showMobileLite ? "flex-1 flex flex-col w-full min-w-0" : `flex-1 flex flex-col transition-all duration-300 w-full min-w-0 ${effectiveAppMode === 'laptop' ? (isSidebarCollapsed ? 'mr-20' : 'mr-64') : 'mr-0 pb-20 md:pb-0'}`}>
+        {showMobileLite ? (
+          <MobileLiteMode 
+            entities={entities}
+            allLedgerEntries={allLedgerEntries}
+            notifications={notifications}
+            appUser={appUser}
+            stats={stats}
+            onOpenFullDesktopMode={() => {
+              setPreferredViewMode('desktop_full');
+              localStorage.setItem('preferredViewMode', 'desktop_full');
+            }}
+            setViewingEntityDetail={setViewingEntityDetail}
+            setViewingInvoice={(invoice) => {
+              setViewingInvoice(invoice);
+            }}
+            setActiveTab={setActiveTab}
+            setIsAddEntityOpen={setIsAddEntityOpen}
+            setIsAddInvoiceOpen={setIsAddInvoiceOpen}
+            setIsAddPaymentOpen={setIsAddPaymentOpen}
+            setSelectedEntity={setSelectedEntity}
+            setPaymentMode={setPaymentMode}
+            setIsAddRevenueOpen={setIsAddRevenueOpen}
+            setIsAddExpenseOpen={setIsAddExpenseOpen}
+          />
+        ) : (
+          <>
+            <header className="sticky top-0 z-40 h-16 md:h-20 border-b border-border bg-background/80 backdrop-blur-md px-4 md:px-8 flex items-center justify-between gap-3 md:gap-8">
           <div className="flex items-center gap-2 md:gap-6 flex-1 max-w-xl min-w-0">
             {effectiveAppMode === 'mobile' && (
               <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(true)} className="shrink-0">
                 <Menu className="h-5 w-5" />
+              </Button>
+            )}
+            {effectiveAppMode === 'mobile' && isFullDesktopModeOnMobile && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => {
+                  setPreferredViewMode('mobile_lite');
+                  localStorage.setItem('preferredViewMode', 'mobile_lite');
+                }}
+                className="bg-emerald-500/15 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs font-black rounded-lg h-9 px-3 shrink-0"
+              >
+                العودة للواجهة المبسطة
               </Button>
             )}
             <div className="relative flex-1 group min-w-0">
@@ -6858,23 +7443,34 @@ export default function App() {
                     <p className="text-xs text-muted-foreground font-bold">تضمين أرصدة الترحيل والأرصدة الافتتاحية في الإحصائيات العامة</p>
                   </div>
                 </div>
-                <Select value={reportTypeFilter} onValueChange={(v: any) => setReportTypeFilter(v)}>
-                  <SelectTrigger className="w-[200px] h-11 bg-card border-border rounded-xl font-black text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-card border-border">
-                    <SelectItem value="all">كل البيانات (حالي+قديم)</SelectItem>
-                    <SelectItem value="current">البيانات الحالية فقط</SelectItem>
-                    <SelectItem value="historical">البيانات القديمة فقط</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="flex flex-col sm:flex-row justify-end items-stretch sm:items-center gap-3 w-full md:w-auto">
+                  <Button 
+                    variant="outline"
+                    onClick={() => recalculateReports(true)}
+                    className="h-11 border-border rounded-xl font-black text-xs gap-2 bg-card text-foreground hover:bg-muted active:scale-95 transition-all"
+                  >
+                    <RefreshCw className="h-4 w-4 text-emerald-500" />
+                    تحديث الحسابات
+                  </Button>
+
+                  <Select value={reportTypeFilter} onValueChange={(v: any) => setReportTypeFilter(v)}>
+                    <SelectTrigger className="w-[200px] h-11 bg-card border-border rounded-xl font-black text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-card border-border">
+                      <SelectItem value="all">كل البيانات (حالي+قديم)</SelectItem>
+                      <SelectItem value="current">البيانات الحالية فقط</SelectItem>
+                      <SelectItem value="historical">البيانات القديمة فقط</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
             </div>
             {/* Conditional Stats: Branch specific vs Unified */}
             <div className={`grid gap-4 md:gap-6 ${effectiveAppMode === 'laptop' ? 'grid-cols-2 lg:grid-cols-4' : 'grid-cols-1'}`}>
               {currentBranchId ? (
                 // Branch Specific Stats
                 [
-                  { id: 'opening_cash_balance', label: 'الرصيد الافتتاحي', value: stats.openingCashBalance, icon: History, color: 'text-amber-500', bg: 'bg-amber-500/10' },
+                  { id: 'opening_cash_balance', label: 'الرصيد الافتتاحي', value: stats.openingCashRemaining, icon: History, color: 'text-amber-500', bg: 'bg-amber-500/10' },
                   { id: 'revenue', label: 'إجمالي الوارد', value: stats.monthlyRevenue, icon: BarChart3, color: 'text-blue-600', bg: 'bg-blue-500/10' },
                   { id: 'monthly_gross_profit', label: 'إجمالي الربح الإجمالي', value: stats.monthlyGrossProfit, icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-500/10' },
                   { id: 'expense', label: 'المصاريف العامة', value: stats.monthlyGeneralExpense, icon: ArrowUpCircle, color: 'text-rose-500', bg: 'bg-rose-500/10' },
@@ -6898,9 +7494,37 @@ export default function App() {
                       <div className="text-2xl md:text-3xl font-black text-foreground font-mono tracking-tighter">
                         {formatIQD(stat.value)}
                       </div>
-                      <div className="mt-1 md:mt-2 flex items-center gap-1.5">
-                         <div className="h-1 w-1 md:h-1.5 md:w-1.5 rounded-full bg-primary animate-pulse" />
-                         <span className="text-[9px] md:text-[10px] text-muted-foreground font-bold">تحديث تلقائي</span>
+                      <div className="mt-2 text-[11px] text-muted-foreground font-bold flex flex-col gap-1.5">
+                        {stat.id === 'opening_cash_balance' && (
+                          <div className="flex flex-col gap-1 text-right w-full border-t border-border/40 pt-1.5">
+                            <div className="flex justify-between items-center text-[10px]">
+                              <span>الأصلي:</span>
+                              <span className="text-foreground tracking-tight font-mono">{formatIQD(stats.openingCashOriginal)}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-[10px]">
+                              <span>المتبقي:</span>
+                              <span className="text-amber-500 tracking-tight font-mono font-black">{formatIQD(stats.openingCashRemaining)}</span>
+                            </div>
+                          </div>
+                        )}
+                        {stat.id === 'cash_balance' && (
+                          <div className="flex flex-col gap-1 text-right w-full border-t border-border/40 pt-1.5">
+                            <div className="flex justify-between items-center text-[10px]">
+                              <span>الوارد بعد الافتتاح:</span>
+                              <span className="text-foreground tracking-tight font-mono">{formatIQD(stats.postOpeningRevenue)}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-[10px]">
+                              <span>الوارد متبقي بعد السحب:</span>
+                              <span className="text-emerald-600 tracking-tight font-mono font-black">{formatIQD(stats.postOpeningRevenueRemaining)}</span>
+                            </div>
+                          </div>
+                        )}
+                        {stat.id !== 'opening_cash_balance' && stat.id !== 'cash_balance' && (
+                          <div className="flex items-center gap-1">
+                            <div className="h-1 w-1 md:h-1.5 md:w-1.5 rounded-full bg-primary animate-pulse" />
+                            <span className="text-[9px] md:text-[10px]">تحديث تلقائي</span>
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -6908,7 +7532,7 @@ export default function App() {
               ) : (
                 // Unified Master Stats
                 [
-                  { id: 'opening_cash_balance', label: 'الرصيد الافتتاحي المجمع', value: stats.openingCashBalance, icon: History, color: 'text-amber-500', bg: 'bg-amber-500/10' },
+                  { id: 'opening_cash_balance', label: 'الرصيد الافتتاحي المجمع', value: stats.openingCashRemaining, icon: History, color: 'text-amber-500', bg: 'bg-amber-500/10' },
                   { id: 'revenue', label: 'إجمالي الوارد (الكل)', value: stats.totalRevenue, icon: BarChart3, color: 'text-emerald-600', bg: 'bg-emerald-500/10' },
                   { id: 'expense', label: 'المصاريف العامة (الكل)', value: stats.totalExpense, icon: ArrowUpCircle, color: 'text-rose-600', bg: 'bg-rose-500/10' },
                   { id: 'profit', label: 'صافي الربح المجمع', value: stats.totalNetProfit, icon: DollarSign, color: stats.totalNetProfit >= 0 ? 'text-blue-600' : 'text-rose-600', bg: stats.totalNetProfit >= 0 ? 'bg-blue-500/10' : 'bg-rose-600/10' },
@@ -6929,9 +7553,37 @@ export default function App() {
                       <div className="text-2xl md:text-3xl font-black text-foreground font-mono tracking-tighter">
                         {formatIQD(stat.value)}
                       </div>
-                      <div className="mt-1 md:mt-2 flex items-center gap-1.5">
-                         <div className="h-1 w-1 md:h-1.5 md:w-1.5 rounded-full bg-primary animate-pulse" />
-                         <span className="text-[9px] md:text-[10px] text-muted-foreground font-bold">عرض موحد للفروع</span>
+                      <div className="mt-2 text-[11px] text-muted-foreground font-bold flex flex-col gap-1.5">
+                        {stat.id === 'opening_cash_balance' && (
+                          <div className="flex flex-col gap-1 text-right w-full border-t border-border/40 pt-1.5">
+                            <div className="flex justify-between items-center text-[10px]">
+                              <span>الأصلي:</span>
+                              <span className="text-foreground tracking-tight font-mono">{formatIQD(stats.openingCashOriginal)}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-[10px]">
+                              <span>المتبقي:</span>
+                              <span className="text-amber-500 tracking-tight font-mono font-black">{formatIQD(stats.openingCashRemaining)}</span>
+                            </div>
+                          </div>
+                        )}
+                        {stat.id === 'cash_balance' && (
+                          <div className="flex flex-col gap-1 text-right w-full border-t border-border/40 pt-1.5">
+                            <div className="flex justify-between items-center text-[10px]">
+                              <span>الوارد بعد الافتتاح:</span>
+                              <span className="text-foreground tracking-tight font-mono">{formatIQD(stats.postOpeningRevenue)}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-[10px]">
+                              <span>الوارد متبقي بعد السحب:</span>
+                              <span className="text-emerald-600 tracking-tight font-mono font-black">{formatIQD(stats.postOpeningRevenueRemaining)}</span>
+                            </div>
+                          </div>
+                        )}
+                        {stat.id !== 'opening_cash_balance' && stat.id !== 'cash_balance' && (
+                          <div className="flex items-center gap-1">
+                            <div className="h-1 w-1 md:h-1.5 md:w-1.5 rounded-full bg-primary animate-pulse" />
+                            <span className="text-[9px] md:text-[10px]">عرض موحد للفروع</span>
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -7767,6 +8419,53 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* أعلى وأقل دين للموردين والمذاخر */}
+                {suppliersWithDebt.length === 0 ? (
+                  <div className="text-center font-bold text-muted-foreground p-6 bg-card border-border rounded-xl border border-dashed mb-6 text-sm shadow-sm" dir="rtl">
+                    لا توجد ديون حالياً
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    {highestDebtSupplier && (
+                      <Card className="bg-card border-border p-4 rounded-xl flex items-center justify-between shadow-sm relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 w-12 h-12 bg-rose-500/5 blur-xl group-hover:bg-rose-500/10 transition-colors" />
+                        <div className="flex items-center gap-3 relative z-10" dir="rtl">
+                          <div className="h-10 w-10 rounded-xl bg-rose-500/10 flex items-center justify-center text-rose-500">
+                            <TrendingUp className="h-5 w-5" />
+                          </div>
+                          <div className="text-right">
+                            <div className="text-[10px] font-black text-muted-foreground uppercase tracking-wider mb-0.5">أعلى دين</div>
+                            <div className="text-sm font-black text-foreground max-w-[150px] md:max-w-[200px] truncate">{highestDebtSupplier.name}</div>
+                          </div>
+                        </div>
+                        <div className="text-left relative z-10" dir="rtl">
+                          <div className="text-base font-black text-rose-600 font-mono tracking-tight">{formatNumberWithCommas(highestDebtSupplier.balance)}</div>
+                          <div className="text-[10px] text-muted-foreground font-bold">دين متبقي (د.ع)</div>
+                        </div>
+                      </Card>
+                    )}
+
+                    {lowestDebtSupplier && (
+                      <Card className="bg-card border-border p-4 rounded-xl flex items-center justify-between shadow-sm relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 w-12 h-12 bg-emerald-500/5 blur-xl group-hover:bg-emerald-500/10 transition-colors" />
+                        <div className="flex items-center gap-3 relative z-10" dir="rtl">
+                          <div className="h-10 w-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                            <TrendingDown className="h-5 w-5" />
+                          </div>
+                          <div className="text-right">
+                            <div className="text-[10px] font-black text-muted-foreground uppercase tracking-wider mb-0.5">أقل دين</div>
+                            <div className="text-sm font-black text-foreground max-w-[150px] md:max-w-[200px] truncate">{lowestDebtSupplier.name}</div>
+                          </div>
+                        </div>
+                        <div className="text-left relative z-10" dir="rtl">
+                          <div className="text-base font-black text-emerald-600 font-mono tracking-tight">{formatNumberWithCommas(lowestDebtSupplier.balance)}</div>
+                          <div className="text-[10px] text-muted-foreground font-bold">دين متبقي (د.ع)</div>
+                        </div>
+                      </Card>
+                    )}
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {filteredEntities.map((entity) => (
                     <Card key={entity.id} className="group cursor-pointer bg-card border-border hover:border-primary/50 transition-all shadow-sm hover:shadow-xl hover:shadow-primary/5 rounded-2xl overflow-hidden relative">
@@ -7930,11 +8629,115 @@ export default function App() {
                   </div>
                 </CardHeader>
                 <CardContent className="p-0">
+                  {/* bulk payment & period selection panel */}
+                  <div className="p-6 bg-primary/5 mx-8 mt-6 rounded-2xl border border-primary/15 space-y-4">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-primary/10 text-primary rounded-xl">
+                          <Layers className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h3 className="text-base font-black text-foreground">التسديد الجماعي وتحديد الفترات</h3>
+                          <p className="text-[11px] text-muted-foreground font-bold">اختر المورد والفترة التاريخية لتسديد جميع الفواتير المستحقة دفعة واحدة</p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          disabled={selectedInvoiceIds.length === 0}
+                          onClick={() => setIsBulkPaymentModalOpen(true)}
+                          className="bg-primary hover:bg-primary/90 text-white px-6 h-11 rounded-xl font-black text-xs gap-2 shadow-md shadow-primary/20 disabled:scale-100 disabled:opacity-50 transition-all cursor-pointer"
+                        >
+                          <span>تسديد المحدد ({selectedInvoiceIds.length})</span>
+                        </Button>
+                        {selectedInvoiceIds.length > 0 && (
+                          <Button
+                            variant="ghost"
+                            onClick={() => setSelectedInvoiceIds([])}
+                            className="text-muted-foreground hover:text-foreground text-xs font-black h-11 px-4 cursor-pointer"
+                          >
+                            إلغاء التحديد
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t border-primary/10">
+                      <div className="space-y-1.5 text-right">
+                        <label className="text-[11px] font-bold text-muted-foreground">من تاريخ</label>
+                        <Input
+                          type="date"
+                          value={bulkFromDate}
+                          onChange={(e) => setBulkFromDate(e.target.value)}
+                          className="bg-background border-border h-11 rounded-xl pr-3 text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1.5 text-right">
+                        <label className="text-[11px] font-bold text-muted-foreground">إلى تاريخ</label>
+                        <Input
+                          type="date"
+                          value={bulkToDate}
+                          onChange={(e) => setBulkToDate(e.target.value)}
+                          className="bg-background border-border h-11 rounded-xl pr-3 text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1.5 text-right">
+                        <label className="text-[11px] font-bold text-muted-foreground">المورد (اختياري)</label>
+                        <select
+                          value={bulkSupplierId}
+                          onChange={(e) => setBulkSupplierId(e.target.value)}
+                          className="w-full bg-background border border-border h-11 rounded-xl px-3 text-xs text-foreground font-black focus:ring-primary/20 focus:border-primary"
+                        >
+                          <option value="">كافة الموردين</option>
+                          {entities
+                            .filter(ent => ent.type === 'supplier')
+                            .map(ent => (
+                              <option key={ent.id} value={ent.id}>{ent.name}</option>
+                            ))}
+                        </select>
+                      </div>
+                      <div className="flex items-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={handleSelectInvoicesWithinRange}
+                          className="w-full bg-background border-border h-11 hover:bg-muted font-black text-xs rounded-xl cursor-pointer"
+                        >
+                          تحديد القوائم ضمن الفترة
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-6"></div>
+
                   {effectiveAppMode === 'laptop' ? (
                   <div className="overflow-x-auto">
                     <table className="w-full text-right">
                       <thead>
                         <tr>
+                          <th className="px-6 py-4 text-right w-12">
+                            <input
+                              type="checkbox"
+                              className="w-5 h-5 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                              checked={
+                                allLedgerEntries.filter(e => e.operationType === 'invoice' && e.paymentStatus !== 'paid' && e.isCommitted === true && e.isDeleted !== true).length > 0 &&
+                                allLedgerEntries
+                                  .filter(e => e.operationType === 'invoice' && e.paymentStatus !== 'paid' && e.isCommitted === true && e.isDeleted !== true)
+                                  .every(e => selectedInvoiceIds.includes(e.id!))
+                              }
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  const unpaidIds = allLedgerEntries
+                                    .filter(x => x.operationType === 'invoice' && x.paymentStatus !== 'paid' && x.isCommitted === true && x.isDeleted !== true)
+                                    .map(x => x.id!);
+                                  setSelectedInvoiceIds(unpaidIds);
+                                } else {
+                                  setSelectedInvoiceIds([]);
+                                }
+                              }}
+                            />
+                          </th>
                           <th className="px-8 !text-right">رقم الفاتورة</th>
                           <th className="px-8 !text-right">المورد</th>
                           <th className="px-8 !text-right">التاريخ</th>
@@ -7946,38 +8749,62 @@ export default function App() {
                         {allLedgerEntries
                           .filter(e => e.operationType === 'invoice' && e.isCommitted === true && e.isDeleted !== true && (e.invoiceNumber?.includes(searchTerm) || e.accountName.includes(searchTerm)))
                           .slice(0, 50)
-                          .map((entry) => (
-                            <tr key={entry.id} className="group hover:bg-primary/5 cursor-pointer transition-colors" onClick={() => handleViewInvoice(entry)}>
-                              <td className="px-8 py-6 font-mono font-black text-foreground">{entry.invoiceNumber}</td>
-                              <td className="px-8 py-6">
-                                <div className="font-black text-foreground group-hover:text-primary transition-colors">{entry.accountName}</div>
-                                <div className="text-[10px] text-muted-foreground font-bold mt-1">سجل توريد آجل</div>
-                              </td>
-                              <td className="px-8 py-6 text-xs text-muted-foreground font-mono font-bold">{safeFormatDate(entry.date, 'yyyy/MM/dd')}</td>
-                              <td className="px-8 py-6 text-left">
-                                <div className="text-lg font-black text-emerald-600 font-mono tracking-tighter">{formatNumberWithCommas(entry.amount || entry.netAmount)}</div>
-                              </td>
-                              <td className="px-8 py-6 text-center" onClick={(e) => e.stopPropagation()}>
-                                <div className="flex items-center justify-center gap-2">
-                                  <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => {
-                                    setViewingInvoice(entry);
-                                    setIsEditInvoiceOpen(true);
-                                  }}>
-                                    <Edit className="h-4 w-4 text-amber-500" />
-                                  </Button>
-                                  <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => {
-                                    setViewingInvoice(entry);
-                                    setIsDeleteInvoiceConfirmOpen(true);
-                                  }}>
-                                    <Trash2 className="h-4 w-4 text-rose-500" />
-                                  </Button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
+                          .map((entry) => {
+                            const isUnpaid = entry.paymentStatus !== 'paid';
+                            const isChecked = selectedInvoiceIds.includes(entry.id!);
+                            return (
+                              <tr key={entry.id} className="group hover:bg-primary/5 cursor-pointer transition-colors" onClick={() => handleViewInvoice(entry)}>
+                                <td className="px-6 py-6 text-right w-12" onClick={(e) => e.stopPropagation()}>
+                                  {isUnpaid ? (
+                                    <input
+                                      type="checkbox"
+                                      className="w-5 h-5 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                                      checked={isChecked}
+                                      onChange={(ev) => {
+                                        if (ev.target.checked) {
+                                          setSelectedInvoiceIds(prev => [...prev, entry.id!]);
+                                        } else {
+                                          setSelectedInvoiceIds(prev => prev.filter(id => id !== entry.id));
+                                        }
+                                      }}
+                                    />
+                                  ) : (
+                                    <span className="text-emerald-500 font-extrabold text-xs bg-emerald-50 px-2 py-1 rounded">مسددة</span>
+                                  )}
+                                </td>
+                                <td className="px-8 py-6 font-mono font-black text-foreground">{entry.invoiceNumber}</td>
+                                <td className="px-8 py-6">
+                                  <div className="font-black text-foreground group-hover:text-primary transition-colors">{entry.accountName}</div>
+                                  <div className="text-[10px] text-muted-foreground font-bold mt-1">
+                                    {isUnpaid ? "سجل توريد آجل" : "سجل توريد مسدد بالكامل"}
+                                  </div>
+                                </td>
+                                <td className="px-8 py-6 text-xs text-muted-foreground font-mono font-bold">{safeFormatDate(entry.date, 'yyyy/MM/dd')}</td>
+                                <td className="px-8 py-6 text-left">
+                                  <div className="text-lg font-black text-emerald-600 font-mono tracking-tighter">{formatNumberWithCommas(entry.amount || entry.netAmount)}</div>
+                                </td>
+                                <td className="px-8 py-6 text-center" onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex items-center justify-center gap-2">
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => {
+                                      setViewingInvoice(entry);
+                                      setIsEditInvoiceOpen(true);
+                                    }}>
+                                      <Edit className="h-4 w-4 text-amber-500" />
+                                    </Button>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => {
+                                      setViewingInvoice(entry);
+                                      setIsDeleteInvoiceConfirmOpen(true);
+                                    }}>
+                                      <Trash2 className="h-4 w-4 text-rose-500" />
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
                         {allLedgerEntries.filter(e => e.operationType === 'invoice' && e.isCommitted === true && e.isDeleted !== true).length === 0 && (
                           <tr>
-                            <td colSpan={5} className="py-20 text-center text-muted-foreground italic font-bold">لا توجد فواتير مسجلة بعد</td>
+                            <td colSpan={6} className="py-20 text-center text-muted-foreground italic font-bold">لا توجد فواتير مسجلة بعد</td>
                           </tr>
                         )}
                       </tbody>
@@ -7988,27 +8815,55 @@ export default function App() {
                       {allLedgerEntries
                         .filter(e => e.operationType === 'invoice' && e.isCommitted === true && e.isDeleted !== true && (e.invoiceNumber?.includes(searchTerm) || e.accountName.includes(searchTerm)))
                         .slice(0, 50)
-                        .map((entry) => (
-                          <div 
-                            key={entry.id} 
-                            className="p-4 flex flex-col gap-2 hover:bg-primary/5 cursor-pointer"
-                            onClick={() => handleViewInvoice(entry)}
-                          >
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <div className="font-black text-foreground">قائمة: {entry.invoiceNumber}</div>
-                                <div className="text-[10px] text-muted-foreground font-bold">{entry.accountName}</div>
-                              </div>
-                              <div className="text-lg font-black text-emerald-600 font-mono tracking-tighter">
-                                {formatNumberWithCommas(entry.amount || entry.netAmount)}
+                        .map((entry) => {
+                          const isUnpaid = entry.paymentStatus !== 'paid';
+                          const isChecked = selectedInvoiceIds.includes(entry.id!);
+                          return (
+                            <div 
+                              key={entry.id} 
+                              className="p-4 flex flex-col gap-2 hover:bg-primary/5 cursor-pointer"
+                              onClick={() => handleViewInvoice(entry)}
+                            >
+                              <div className="flex items-center gap-4">
+                                <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+                                  {isUnpaid ? (
+                                    <input
+                                      type="checkbox"
+                                      className="w-5 h-5 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                                      checked={isChecked}
+                                      onChange={(ev) => {
+                                        if (ev.target.checked) {
+                                          setSelectedInvoiceIds(prev => [...prev, entry.id!]);
+                                        } else {
+                                          setSelectedInvoiceIds(prev => prev.filter(id => id !== entry.id));
+                                        }
+                                      }}
+                                    />
+                                  ) : (
+                                    <span className="text-emerald-500 font-extrabold text-xs">✓</span>
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex justify-between items-start">
+                                    <div>
+                                      <div className="font-black text-foreground">قائمة: {entry.invoiceNumber}</div>
+                                      <div className="text-[10px] text-muted-foreground font-bold">{entry.accountName}</div>
+                                    </div>
+                                    <div className="text-lg font-black text-emerald-600 font-mono tracking-tighter">
+                                      {formatNumberWithCommas(entry.amount || entry.netAmount)}
+                                    </div>
+                                  </div>
+                                  <div className="flex justify-between items-center text-[10px] text-muted-foreground font-bold uppercase tracking-wider mt-1">
+                                    <span>{safeFormatDate(entry.date, 'yyyy/MM/dd')}</span>
+                                    <span className={`px-2 py-0.5 rounded ${isUnpaid ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
+                                      {isUnpaid ? "آجل" : "مسددة"}
+                                    </span>
+                                  </div>
+                                </div>
                               </div>
                             </div>
-                            <div className="flex justify-between items-center text-[10px] text-muted-foreground font-bold uppercase tracking-wider">
-                              <span>{safeFormatDate(entry.date, 'yyyy/MM/dd')}</span>
-                              <span className="px-2 py-0.5 rounded bg-primary/10 text-primary">توريد مشتريات</span>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       {allLedgerEntries.filter(e => e.operationType === 'invoice' && e.isCommitted === true && e.isDeleted !== true).length === 0 && (
                         <div className="py-20 text-center text-muted-foreground italic font-bold">لا توجد فواتير مسجلة بعد</div>
                       )}
@@ -8290,6 +9145,63 @@ export default function App() {
                       </Card>
                     )}
 
+                    <Card className="bg-muted/10 border-border rounded-2xl p-8 shadow-sm space-y-6">
+                      <div className="flex items-center gap-4">
+                        <div className="p-3 bg-emerald-500/10 text-emerald-500 rounded-2xl">
+                          <History className="h-6 w-6" />
+                        </div>
+                        <div>
+                          <CardTitle className="text-lg font-black text-foreground">الوارد الافتتاحي</CardTitle>
+                          <p className="text-xs text-muted-foreground font-bold">تعديل الرصيد الافتتاحي للفرع الحالي مباشرة</p>
+                        </div>
+                      </div>
+                      <div className="space-y-4 pt-4 border-t border-border/50">
+                        <div className="space-y-2">
+                          <Label className="text-xs font-black text-muted-foreground">قيمة الوارد الافتتاحي (د.ع)</Label>
+                          <Input
+                            type="number"
+                            placeholder="مثال: 5,000,000"
+                            value={openingCashAmount}
+                            onChange={(e) => setOpeningCashAmount(e.target.value)}
+                            className="bg-background border-border rounded-xl h-11 text-sm font-bold text-foreground"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label className="text-xs font-black text-muted-foreground">تاريخ الوارد الافتتاحي</Label>
+                          <Input
+                            type="date"
+                            value={openingCashDate}
+                            onChange={(e) => setOpeningCashDate(e.target.value)}
+                            className="bg-background border-border rounded-xl h-11 text-sm font-bold text-foreground"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label className="text-xs font-black text-muted-foreground">ملاحظات الوارد الافتتاحي</Label>
+                          <Input
+                            placeholder="أي ملاحظات حول الوارد الافتتاحي..."
+                            value={openingCashNotes}
+                            onChange={(e) => setOpeningCashNotes(e.target.value)}
+                            className="bg-background border-border rounded-xl h-11 text-sm font-bold text-foreground"
+                          />
+                        </div>
+
+                        <Button
+                          className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold gap-2 shadow-lg shadow-emerald-500/10 mt-2"
+                          onClick={handleSaveOpeningCashSettings}
+                          disabled={isSavingOpeningCash}
+                        >
+                          {isSavingOpeningCash ? (
+                            <RefreshCw className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="h-4 w-4" />
+                          )}
+                          <span>حفظ التعديلات</span>
+                        </Button>
+                      </div>
+                    </Card>
+
                    <Card className="bg-muted/10 border-border rounded-2xl p-8 shadow-sm">
                       <CardTitle className="text-sm font-black text-foreground mb-6 uppercase tracking-widest">تلميحات النظام</CardTitle>
                       <div className="space-y-4 text-xs font-bold text-muted-foreground leading-relaxed">
@@ -8525,6 +9437,63 @@ export default function App() {
                </div>
 
                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
+                  <Card className="bg-card border-border p-6 md:p-8 space-y-6 rounded-2xl shadow-sm">
+                    <div className="flex items-center gap-4">
+                      <div className="p-3 bg-emerald-500/10 text-emerald-500 rounded-2xl">
+                        <History className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-black text-foreground">الوارد الافتتاحي</h3>
+                        <p className="text-xs text-muted-foreground font-bold font-sans">Pharmacy Starting Cash Balance</p>
+                      </div>
+                    </div>
+                    <div className="space-y-4 pt-4 border-t border-border">
+                       <div className="space-y-2">
+                         <Label className="text-xs font-black text-muted-foreground">قيمة الوارد الافتتاحي (د.ع)</Label>
+                         <Input
+                           type="number"
+                           placeholder="مثال: 5,000,000"
+                           value={openingCashAmount}
+                           onChange={(e) => setOpeningCashAmount(e.target.value)}
+                           className="bg-muted/30 border-border rounded-xl h-11 text-sm font-bold text-foreground"
+                         />
+                       </div>
+
+                       <div className="space-y-2">
+                         <Label className="text-xs font-black text-muted-foreground">تاريخ الوارد الافتتاحي</Label>
+                         <Input
+                           type="date"
+                           value={openingCashDate}
+                           onChange={(e) => setOpeningCashDate(e.target.value)}
+                           className="bg-muted/30 border-border rounded-xl h-11 text-sm font-bold text-foreground"
+                         />
+                       </div>
+
+                       <div className="space-y-2">
+                         <Label className="text-xs font-black text-muted-foreground">ملاحظات الوارد الافتتاحي</Label>
+                         <Input
+                           placeholder="أي ملاحظات حول الوارد الافتتاحي..."
+                           value={openingCashNotes}
+                           onChange={(e) => setOpeningCashNotes(e.target.value)}
+                           className="bg-muted/30 border-border rounded-xl h-11 text-sm font-bold text-foreground"
+                         />
+                       </div>
+
+                       <Button
+                         className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold gap-2 shadow-lg shadow-emerald-500/10 mt-2"
+                         onClick={handleSaveOpeningCashSettings}
+                         disabled={isSavingOpeningCash}
+                       >
+                         {isSavingOpeningCash ? (
+                           <RefreshCw className="h-4 w-4 animate-spin" />
+                         ) : (
+                           <CheckCircle2 className="h-4 w-4" />
+                         )}
+                         <span>حفظ الوارد الافتتاحي</span>
+                       </Button>
+                    </div>
+                  </Card>
+
                   <Card className="bg-card border-border p-6 md:p-8 space-y-6 rounded-2xl shadow-sm">
                     <div className="flex items-center gap-4">
                       <div className="p-3 bg-blue-500/10 text-blue-500 rounded-2xl">
@@ -9013,6 +9982,8 @@ export default function App() {
           </TabsContent>
         </Tabs>
       </main>
+          </>
+        )}
 
       {/* Reconstructed Floating Action Buttons */}
       <div className="fixed bottom-6 right-6 flex flex-col gap-4">
@@ -9020,6 +9991,20 @@ export default function App() {
           <TrendingUp className="h-6 w-6" />
         </Button>
       </div>
+
+      {effectiveAppMode === 'mobile' && isFullDesktopModeOnMobile && (
+        <div className="fixed bottom-22 left-6 z-50 flex items-center justify-center">
+          <Button 
+            onClick={() => {
+              setPreferredViewMode('mobile_lite');
+              localStorage.setItem('preferredViewMode', 'mobile_lite');
+            }}
+            className="bg-emerald-500/90 text-white hover:bg-emerald-600 font-extrabold text-xs shadow-2xl rounded-2xl h-11 px-5 border border-emerald-400/20 backdrop-blur-sm cursor-pointer active:scale-95"
+          >
+            العودة للواجهة المبسطة
+          </Button>
+        </div>
+      )}
 
       {/* Reconstructed Dialogs */}
       <Dialog open={!!lightboxImage} onOpenChange={(open) => !open && setLightboxImage(null)}>
@@ -9132,6 +10117,132 @@ export default function App() {
           onClose={() => setIsMultiPaymentOpen(false)}
         />
       )}
+
+      {/* Bulk Payment / Collective settlement Dialog */}
+      <Dialog open={isBulkPaymentModalOpen} onOpenChange={(open) => {
+        if (!isProcessingBulkPayment) {
+          setIsBulkPaymentModalOpen(open);
+          setBulkPaymentReport(null);
+        }
+      }}>
+        <DialogContent dir="rtl" className="bg-card border-border text-foreground sm:max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-foreground text-xl font-black flex items-center gap-2">
+              <Layers className="h-5 w-5 text-primary" />
+              <span>نافذة التسديد الجماعي للقوائم المختارة</span>
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-6 pt-4 text-right">
+            {/* Warning / Explanation banner */}
+            <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10 text-xs font-bold text-foreground">
+              سوف يتم تسديد كافة المبالغ المتبقية لكل قائمة من القوائم {selectedInvoices.length} المحددة تلقائياً، وإنشاء سجل دفع مستقل لكل منها مع إضافة نشاط جماعي لكل مورد.
+            </div>
+
+            {/* Calculations Panel */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="p-4 bg-muted/30 border border-border rounded-2xl text-center">
+                <span className="text-[10px] text-muted-foreground font-black block mb-1">القوائم المختارة</span>
+                <span className="text-xl font-black text-foreground font-mono">{bulkStats.count}</span>
+              </div>
+              <div className="p-4 bg-muted/30 border border-border rounded-2xl text-center">
+                <span className="text-[10px] text-muted-foreground font-black block mb-1">مجموع المبالغ</span>
+                <span className="text-xl font-black text-slate-700 font-mono tracking-tighter">{formatNumberWithCommas(bulkStats.totalAmount)}</span>
+              </div>
+              <div className="p-4 bg-muted/30 border border-border rounded-2xl text-center">
+                <span className="text-[10px] text-muted-foreground font-black block mb-1">مجموع الخصومات</span>
+                <span className="text-xl font-black text-rose-600 font-mono tracking-tighter">{formatNumberWithCommas(bulkStats.totalDiscount)}</span>
+              </div>
+              <div className="p-4 bg-primary/10 border border-primary/15 rounded-2xl text-center">
+                <span className="text-[10px] text-primary font-black block mb-1">المبلغ النهائي المتبقي</span>
+                <span className="text-xl font-black text-primary font-mono tracking-tighter">{formatNumberWithCommas(bulkStats.totalRemainingToPay)}</span>
+              </div>
+            </div>
+
+            {/* List of checked invoices in the bulk pay */}
+            <div className="border border-border rounded-2xl overflow-hidden max-h-48 overflow-y-auto">
+              <div className="bg-muted/40 p-3 border-b border-border font-black text-xs text-foreground">
+                تفاصيل القوائم المستحقة للتسديد الجماعي
+              </div>
+              <div className="divide-y divide-border">
+                {selectedInvoices.map((inv) => (
+                  <div key={inv.id} className="p-3 text-xs flex justify-between items-center hover:bg-muted/20 transition-colors">
+                    <div>
+                      <span className="font-bold text-foreground">قائمة {inv.invoiceNumber} </span>
+                      <span className="text-muted-foreground font-medium">({inv.accountName})</span>
+                    </div>
+                    <div className="font-mono font-black text-primary">
+                      {formatNumberWithCommas(inv.remainingAmount || 0)} د.ع.
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Report sub-panel if failures or successes exist */}
+            {bulkPaymentReport && (
+              <div className="space-y-4 pt-4 border-t border-border">
+                <h4 className="font-black text-sm text-foreground">تقرير عمليات التسديد الجماعي:</h4>
+                
+                {bulkPaymentReport.successes.length > 0 && (
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 space-y-2">
+                    <span className="font-black text-xs text-emerald-600 block">✓ العمليات الناجحة ({bulkPaymentReport.successes.length}):</span>
+                    <ul className="text-xs text-emerald-700 font-bold space-y-1 list-disc list-inside">
+                      {bulkPaymentReport.successes.map((s, idx) => (
+                        <li key={idx}>
+                          فاتورة {s.invoiceNumber} بقيمة {formatNumberWithCommas(s.amount)} د.ع.
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {bulkPaymentReport.failures.length > 0 && (
+                  <div className="bg-rose-500/10 border border-rose-500/20 rounded-2xl p-4 space-y-2">
+                    <span className="font-black text-xs text-rose-600 block">✗ العمليات الفاشلة ({bulkPaymentReport.failures.length}):</span>
+                    <ul className="text-xs text-rose-700 font-bold space-y-1 list-disc list-inside">
+                      {bulkPaymentReport.failures.map((f, idx) => (
+                        <li key={idx}>
+                          فاتورة {f.invoiceNumber} - الخطأ: {f.error}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-border">
+              <Button
+                variant="outline"
+                disabled={isProcessingBulkPayment}
+                onClick={() => {
+                  setIsBulkPaymentModalOpen(false);
+                  setBulkPaymentReport(null);
+                }}
+                className="font-black text-xs h-12 px-6 rounded-xl cursor-pointer"
+              >
+                إغلاق
+              </Button>
+              <Button
+                disabled={isProcessingBulkPayment || bulkStats.count === 0}
+                onClick={handleExecuteBulkPayment}
+                className="bg-primary hover:bg-primary-hover text-white px-8 h-12 rounded-xl font-black text-xs gap-2 cursor-pointer shadow-md shadow-primary/20"
+              >
+                {isProcessingBulkPayment ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    جاري تسديد {bulkStats.count} قائمة...
+                  </>
+                ) : (
+                  <span>تأكيد التسديد الجماعي ({formatNumberWithCommas(bulkStats.totalRemainingToPay)} د.ع.)</span>
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isAddInvoiceOpen} onOpenChange={setIsAddInvoiceOpen}>
         <DialogContent dir="rtl" className="bg-card border-border text-foreground sm:max-w-2xl lg:max-w-[85vw] max-h-[95vh] overflow-y-auto">

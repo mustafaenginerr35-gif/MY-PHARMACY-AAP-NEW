@@ -1,7 +1,10 @@
 import React from 'react';
 
 export const Card = ({ className = '', ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={`rounded-3xl border border-border bg-card text-card-foreground shadow-sm ${className}`} {...props} />
+  <div 
+    className={`rounded-[20px] border border-border/50 bg-card/90 dark:bg-[#1E293B]/85 backdrop-blur-md text-card-foreground shadow-lg shadow-slate-950/5 dark:shadow-slate-950/20 transition-all duration-300 hover:shadow-xl hover:translate-y-[-2px] ${className}`} 
+    {...props} 
+  />
 );
 
 export const CardHeader = ({ className = '', ...props }: React.HTMLAttributes<HTMLDivElement>) => (

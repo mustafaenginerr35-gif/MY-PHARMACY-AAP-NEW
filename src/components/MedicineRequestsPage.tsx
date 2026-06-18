@@ -46,7 +46,7 @@ import { firebaseService } from '../services/firebaseService';
 import { useFirebaseQuery } from '../hooks/useFirebaseQuery';
 import { where, orderBy } from 'firebase/firestore';
 import { toast } from 'sonner';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { MedicineRequest } from '../db';
 import { safeFormatDate, toValidDate } from '../lib/formatters';
 import { ImageCapture } from './ImageCapture';

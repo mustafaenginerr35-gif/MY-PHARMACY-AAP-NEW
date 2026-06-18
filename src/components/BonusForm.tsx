@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/select';
 import { format } from 'date-fns';
 import { Entity } from '../db';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { parseFormattedNumber } from '@/src/lib/formatters';
 

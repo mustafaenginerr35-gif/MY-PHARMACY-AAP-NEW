@@ -38,7 +38,7 @@ import {
   toValidDate 
 } from '../lib/formatters';
 import { Deadline, LedgerEntry, Entity, PharmacyBranch } from '../db';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { isSameDay, isBefore, isAfter, startOfDay, addDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 
 interface PaymentDeadlinesPageProps {

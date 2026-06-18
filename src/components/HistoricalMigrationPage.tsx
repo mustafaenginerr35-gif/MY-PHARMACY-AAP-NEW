@@ -46,13 +46,30 @@ import { firebaseService, getEffectiveUserInfo } from '../services/firebaseServi
 import { useFirebaseQuery } from '../hooks/useFirebaseQuery';
 import { where, orderBy } from 'firebase/firestore';
 import { toast } from 'sonner';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { formatIQD, safeFormatDate, toValidDate } from '../lib/formatters';
 import { HistoricalRecord, Entity, OpeningCash } from '../db';
+
+export const getSourceLabel = (source?: string): string => {
+  if (!source) return 'رصيد نقد';
+  switch (source) {
+    case 'previous_month':
+      return 'وارد مدور من الشهر السابق';
+    case 'cash_remaining':
+    case 'leftover_cash':
+      return 'كاش متبقي';
+    case 'internal_transfer':
+      return 'تحويل داخلي';
+    case 'other':
+      return 'أخرى';
+    default:
+      return source;
+  }
+};
 
 interface HistoricalMigrationPageProps {
   branchId: string | null;
@@ -1066,7 +1083,7 @@ export const HistoricalMigrationPage: React.FC<HistoricalMigrationPageProps> = (
                         </td>
                         <td className="px-6 py-4">
                            <div className="text-xs font-bold text-foreground">
-                              {item.source || 'رصيد نقد'} - {item.month}/{item.year}
+                              {getSourceLabel(item.source)} - {item.month}/{item.year}
                            </div>
                            <div className="text-[10px] text-muted-foreground mt-1 line-clamp-1">{item.notes}</div>
                         </td>

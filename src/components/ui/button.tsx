@@ -7,14 +7,14 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className = '', variant = 'default', size = 'default', ...props }, ref) => {
-    let baseStyles = 'inline-flex items-center justify-center rounded-xl font-bold transition-all focus:outline-none disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98] cursor-pointer';
+    let baseStyles = 'inline-flex items-center justify-center rounded-xl font-bold transition-all duration-300 ease-out focus:outline-none disabled:pointer-events-none disabled:opacity-50 active:scale-[0.96] cursor-pointer hover:scale-[1.02]';
     
     let variantStyles = '';
-    if (variant === 'default') variantStyles = 'bg-primary text-primary-foreground hover:bg-primary/95 shadow-sm';
-    else if (variant === 'destructive') variantStyles = 'bg-rose-600 text-white hover:bg-rose-700 shadow-sm';
-    else if (variant === 'outline') variantStyles = 'border border-border bg-transparent hover:bg-muted text-foreground';
-    else if (variant === 'secondary') variantStyles = 'bg-muted text-muted-foreground hover:bg-muted/80';
-    else if (variant === 'ghost') variantStyles = 'hover:bg-muted hover:text-foreground text-muted-foreground';
+    if (variant === 'default') variantStyles = 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-md shadow-emerald-500/10 hover:shadow-lg hover:shadow-emerald-500/20';
+    else if (variant === 'destructive') variantStyles = 'bg-rose-500 text-white hover:bg-rose-600 shadow-md shadow-rose-500/10 hover:shadow-lg hover:shadow-rose-500/20';
+    else if (variant === 'outline') variantStyles = 'border border-border bg-card/60 backdrop-blur-sm text-foreground hover:bg-muted/80 hover:border-primary/50';
+    else if (variant === 'secondary') variantStyles = 'bg-secondary/80 backdrop-blur-sm text-secondary-foreground hover:bg-secondary';
+    else if (variant === 'ghost') variantStyles = 'hover:bg-muted/60 hover:text-foreground text-muted-foreground';
     else if (variant === 'link') variantStyles = 'text-primary underline-offset-4 hover:underline bg-transparent';
 
     let sizeStyles = '';

@@ -35,7 +35,7 @@ import {
 } from '../lib/formatters';
 import { Deadline, LedgerEntry, Entity } from '../db';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence } from 'motion/react';
 
 interface PaymentDeadlineFormProps {
   isOpen: boolean;
@@ -45,6 +45,7 @@ interface PaymentDeadlineFormProps {
   allLedgerEntries: LedgerEntry[];
   initialData?: Deadline | null;
   currentBranchId: string | null;
+  preselectedSupplierId?: string;
 }
 
 export const PaymentDeadlineForm = ({ 
@@ -54,7 +55,8 @@ export const PaymentDeadlineForm = ({
   entities,
   allLedgerEntries,
   initialData,
-  currentBranchId
+  currentBranchId,
+  preselectedSupplierId
 }: PaymentDeadlineFormProps) => {
   const [supplierId, setSupplierId] = useState<string>('');
   const [invoiceId, setInvoiceId] = useState<string>('');
@@ -62,6 +64,8 @@ export const PaymentDeadlineForm = ({
   const [dueDate, setDueDate] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
+  const [supplierSearchText, setSupplierSearchText] = useState<string>('');
+  const [dropdownOpen, setDropdownOpen] = useState<boolean>(false);
 
   // Filtered invoices based on supplier selection
   const availableInvoices = useMemo(() => {
@@ -78,22 +82,62 @@ export const PaymentDeadlineForm = ({
     return availableInvoices.find(inv => inv.id === invoiceId);
   }, [invoiceId, availableInvoices]);
 
+  const filteredSuppliers = useMemo(() => {
+    if (!supplierSearchText) return entities;
+    return entities.filter(e => e.name.toLowerCase().includes(supplierSearchText.toLowerCase()));
+  }, [supplierSearchText, entities]);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.supplier-search-container')) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
   useEffect(() => {
     if (initialData) {
       setSupplierId(initialData.accountId);
-      setInvoiceId(initialData.invoiceId);
-      setExpectedAmount(String(initialData.requiredPayment));
+      setInvoiceId(initialData.invoiceId || '');
+      setExpectedAmount(initialData.requiredPayment ? String(initialData.requiredPayment) : '');
       const vDate = toValidDate(initialData.dueDate);
       setDueDate(!isNaN(vDate.getTime()) ? vDate.toISOString().split('T')[0] : '');
       setNotes(initialData.notes || '');
+      
+      const supplierName = entities.find(e => e.id === initialData.accountId)?.name || initialData.accountName || '';
+      setSupplierSearchText(supplierName);
+    } else if (preselectedSupplierId) {
+      setSupplierId(preselectedSupplierId);
+      setInvoiceId('');
+      setExpectedAmount('');
+      setDueDate('');
+      setNotes('');
+      
+      const supplierName = entities.find(e => e.id === preselectedSupplierId)?.name || '';
+      setSupplierSearchText(supplierName);
     } else {
       setSupplierId('');
       setInvoiceId('');
       setExpectedAmount('');
       setDueDate('');
       setNotes('');
+      setSupplierSearchText('');
     }
-  }, [initialData, isOpen]);
+  }, [initialData, isOpen, preselectedSupplierId, entities]);
+
+  useEffect(() => {
+    if (!initialData) {
+      const matched = entities.find(e => e.name === supplierSearchText);
+      if (matched) {
+        setSupplierId(matched.id || '');
+      } else {
+        setSupplierId('');
+      }
+    }
+  }, [supplierSearchText, entities, initialData]);
 
   // If a new invoice is selected, default expected amount to its remaining
   useEffect(() => {
@@ -149,21 +193,54 @@ export const PaymentDeadlineForm = ({
 
         <form onSubmit={handleSave} className="p-8 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Supplier Select */}
-            <div className="space-y-2">
-              <Label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mr-1">المورد / المذخر</Label>
-              <Select value={supplierId} onValueChange={setSupplierId} disabled={!!initialData}>
-                <SelectTrigger className="bg-muted border-border h-14 rounded-xl font-bold text-lg">
-                  <SelectValue placeholder="اختر المورد..." />
-                </SelectTrigger>
-                <SelectContent dir="rtl" className="bg-card border-border">
-                   {entities.map(e => (
-                     <SelectItem key={e.id} value={e.id || ''} className="py-2.5 font-bold">
-                        {e.name}
-                     </SelectItem>
-                   ))}
-                </SelectContent>
-              </Select>
+            {/* Supplier Select with Search */}
+            <div className="space-y-2 relative supplier-search-container">
+              <Label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mr-1">المورد / المذخر (بحث واختيار)</Label>
+              <div className="relative">
+                <Input
+                  type="text"
+                  placeholder="ابحث عن المورد بالاسم..."
+                  value={supplierSearchText}
+                  onChange={(e) => {
+                    setSupplierSearchText(e.target.value);
+                    setDropdownOpen(true);
+                  }}
+                  onFocus={() => {
+                    setDropdownOpen(true);
+                  }}
+                  disabled={!!initialData}
+                  className="bg-muted border-border h-14 rounded-xl font-bold pr-10 pl-4"
+                />
+                <User className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+              </div>
+              
+              {/* Dropdown list of filtered suppliers */}
+              {dropdownOpen && !initialData && (
+                <div className="absolute z-50 w-full mt-1 bg-card border border-border rounded-xl shadow-xl max-h-60 overflow-y-auto divide-y divide-border">
+                  {filteredSuppliers.length > 0 ? (
+                    filteredSuppliers.map(sup => (
+                      <div
+                        key={sup.id}
+                        onClick={() => {
+                          setSupplierId(sup.id || '');
+                          setSupplierSearchText(sup.name);
+                          setDropdownOpen(false);
+                        }}
+                        className={`p-3 text-right font-bold text-sm cursor-pointer hover:bg-muted transition-colors flex items-center justify-between ${
+                          supplierId === sup.id ? 'bg-primary/5 text-primary' : 'text-foreground'
+                        }`}
+                      >
+                        <span>{sup.name}</span>
+                        {supplierId === sup.id && <span className="text-xs bg-primary/10 px-2 py-0.5 rounded text-primary">محدد</span>}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-4 text-center text-rose-500 font-bold text-sm">
+                      لا يوجد مورد مسجل بهذا الاسم
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Invoice Select */}
@@ -174,14 +251,27 @@ export const PaymentDeadlineForm = ({
                   <SelectValue placeholder={supplierId ? "اختر القائمة..." : "اختر المورد أولاً"} />
                 </SelectTrigger>
                 <SelectContent dir="rtl" className="bg-card border-border">
-                   {availableInvoices.map(inv => (
-                     <SelectItem key={inv.id} value={inv.id || ''} className="py-3 font-bold">
-                        <div className="flex flex-col text-right">
-                          <span>قائمة رقم: {inv.invoiceNumber}</span>
-                          <span className="text-[10px] text-muted-foreground">التاريخ: {safeFormatDate(toValidDate(inv.date || inv.createdAt), 'yyyy/MM/dd')} | المتبقي: {formatNumberWithCommas(inv.remainingAmount ?? inv.amount)}</span>
-                        </div>
-                     </SelectItem>
-                   ))}
+                    {availableInvoices.map(inv => {
+                      const formattedDate = safeFormatDate(toValidDate(inv.date || inv.createdAt), 'yyyy-MM-dd');
+                      const remainingFormatted = formatNumberWithCommas(inv.remainingAmount ?? inv.amount);
+                      const paymentStatusLabel = 
+                        inv.paymentStatus === 'partially_paid' ? 'مسدد جزئياً' :
+                        inv.paymentStatus === 'unpaid' ? 'غير مسدد' : 'بانتظار التسديد';
+                      return (
+                        <SelectItem key={inv.id} value={inv.id || ''} className="py-2.5 font-bold">
+                          <div className="flex flex-col text-right gap-1">
+                            <span className="text-sm font-black text-foreground">قائمة رقم #{inv.invoiceNumber}</span>
+                            <span className="text-[11px] text-muted-foreground font-semibold flex flex-wrap items-center gap-1.5">
+                              <span>التاريخ: {formattedDate}</span>
+                              <span className="text-border">|</span>
+                              <span className="text-rose-500 font-bold">المتبقي: {remainingFormatted} د.ع</span>
+                              <span className="text-border">|</span>
+                              <span className="bg-amber-500/10 text-amber-600 px-1 py-0.2 rounded text-[9px] font-bold">{paymentStatusLabel}</span>
+                            </span>
+                          </div>
+                        </SelectItem>
+                      );
+                    })}
                 </SelectContent>
               </Select>
             </div>

@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { User, Phone, Briefcase, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import type { Employee } from '../db';
+import { CurrencyInput } from '@/components/ui/CurrencyInput';
 
 interface EmployeeFormProps {
   onSubmit: (data: Partial<Employee>) => void;
@@ -13,6 +14,22 @@ interface EmployeeFormProps {
 }
 
 export const EmployeeForm = ({ onSubmit, onClose, initialData }: EmployeeFormProps) => {
+  const [salaryType, setSalaryType] = useState<'hourly' | 'daily' | 'lumped'>(
+    initialData?.salaryType || 'hourly'
+  );
+  const [fixedMonthlySalary, setFixedMonthlySalary] = useState<number>(
+    initialData?.fixedMonthlySalary || 0
+  );
+  const [month, setMonth] = useState<number>(
+    initialData?.month || new Date().getMonth() + 1
+  );
+  const [year, setYear] = useState<number>(
+    initialData?.year || new Date().getFullYear()
+  );
+  const [allowDoubleCheckIn, setAllowDoubleCheckIn] = useState<boolean>(
+    initialData?.allowDoubleCheckIn || false
+  );
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
@@ -21,6 +38,11 @@ export const EmployeeForm = ({ onSubmit, onClose, initialData }: EmployeeFormPro
       phone: formData.get('phone') as string,
       jobTitle: formData.get('jobTitle') as string,
       notes: formData.get('notes') as string,
+      salaryType,
+      fixedMonthlySalary: salaryType === 'lumped' ? fixedMonthlySalary : undefined,
+      month: salaryType === 'lumped' ? month : undefined,
+      year: salaryType === 'lumped' ? year : undefined,
+      allowDoubleCheckIn,
     };
     onSubmit(data);
   };
@@ -91,6 +113,86 @@ export const EmployeeForm = ({ onSubmit, onClose, initialData }: EmployeeFormPro
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Salary Type Section */}
+        <div className="border-t border-border/50 pt-6 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-right">
+            <div className="space-y-2">
+              <Label htmlFor="salaryType" className="text-[10px] font-black text-muted-foreground mr-1 uppercase tracking-widest">نوع الراتب</Label>
+              <select
+                id="salaryType"
+                name="salaryType"
+                value={salaryType}
+                onChange={(e) => setSalaryType(e.target.value as any)}
+                className="w-full bg-muted/30 border border-border rounded-2xl h-14 px-4 font-black text-lg text-right focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              >
+                <option value="hourly">بالساعة</option>
+                <option value="daily">باليوم</option>
+                <option value="lumped">مقطوعة شهرية</option>
+              </select>
+            </div>
+
+            <div className="space-y-2 flex flex-col justify-end">
+              <Label className="text-[10px] font-black text-muted-foreground mr-1 uppercase tracking-widest">تكرار الحضور (الموبايل)</Label>
+              <div className="flex items-center justify-between bg-muted/30 border border-border rounded-2xl h-14 px-4">
+                <span className="text-xs font-bold text-muted-foreground">السماح بتسجيل الحضور مرتين اليوم</span>
+                <input
+                  type="checkbox"
+                  checked={allowDoubleCheckIn}
+                  onChange={(e) => setAllowDoubleCheckIn(e.target.checked)}
+                  className="h-5 w-5 rounded border-border text-primary focus:ring-primary focus:ring-offset-background cursor-pointer"
+                />
+              </div>
+            </div>
+          </div>
+
+          {salaryType === 'lumped' && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-right animate-in fade-in slide-in-from-top-2 duration-300">
+              <div className="space-y-2">
+                <Label htmlFor="fixedMonthlySalary" className="text-[10px] font-black text-muted-foreground mr-1 uppercase tracking-widest">الراتب الشهري الثابت (د.ع)</Label>
+                <CurrencyInput
+                  id="fixedMonthlySalary"
+                  name="fixedMonthlySalary"
+                  value={fixedMonthlySalary}
+                  onChange={(val) => setFixedMonthlySalary(Math.max(0, val))}
+                  required
+                  className="bg-muted/30 border-border rounded-2xl h-14 px-4 focus:ring-2 focus:ring-primary/20 focus:border-primary text-right font-mono text-lg font-black transition-all"
+                  placeholder="0"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="lumpedMonth" className="text-[10px] font-black text-muted-foreground mr-1 uppercase tracking-widest">الشهر</Label>
+                <select
+                  id="lumpedMonth"
+                  name="lumpedMonth"
+                  value={month}
+                  onChange={(e) => setMonth(Number(e.target.value))}
+                  className="w-full bg-muted/30 border border-border rounded-2xl h-14 px-4 font-black text-lg text-right focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                >
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="lumpedYear" className="text-[10px] font-black text-muted-foreground mr-1 uppercase tracking-widest">السنة</Label>
+                <Input
+                  id="lumpedYear"
+                  name="lumpedYear"
+                  type="number"
+                  value={year}
+                  onChange={(e) => setYear(Number(e.target.value))}
+                  required
+                  className="bg-muted/30 border-border rounded-2xl h-14 focus:ring-2 focus:ring-primary/20 focus:border-primary text-right font-mono text-lg font-black transition-all"
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

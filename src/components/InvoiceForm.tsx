@@ -10,8 +10,10 @@ import {
   Upload,
   Image as ImageIcon,
   AlertCircle,
-  Plus
+  Plus,
+  Sparkles
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -22,7 +24,7 @@ import {
   SelectTrigger, 
   SelectValue 
 } from '@/components/ui/select';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import { Entity } from '../db';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
@@ -42,6 +44,15 @@ export const InvoiceForm = ({ entities, selectedEntity: initialEntity, onSubmit,
   const [purchaseType, setPurchaseType] = useState<'cash' | 'credit'>(initialData?.purchaseType || 'credit');
   const [bonusLater, setBonusLater] = useState(initialData?.bonusLater || false);
   const [selectedEntityId, setSelectedEntityId] = useState<string>(initialData?.accountId || initialEntity?.id || '');
+  
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [invoiceNumber, setInvoiceNumber] = useState<string>(initialData?.invoiceNumber || '');
+  const [invoiceDate, setInvoiceDate] = useState<string>(
+    initialData?.date 
+      ? safeFormatDate(initialData.date, 'yyyy-MM-dd', { useAr: false }) 
+      : safeFormatDate(new Date(), 'yyyy-MM-dd', { useAr: false })
+  );
+  const [notes, setNotes] = useState<string>(initialData?.notes || '');
   
   // Auto-update selectedEntityId if initialEntity changes (e.g. newly added from modal)
   React.useEffect(() => {
@@ -128,6 +139,111 @@ export const InvoiceForm = ({ entities, selectedEntity: initialEntity, onSubmit,
     }
   };
 
+  const handleAIInvoiceImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsAnalyzing(true);
+    console.log("[Client OCR] Starting invoice image analysis for file:", file.name);
+    console.log("[Client OCR] File type:", file.type);
+    console.log("[Client OCR] File size:", file.size, "bytes");
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const fullBase64 = reader.result as string;
+        const base64Data = fullBase64.split(',')[1];
+        const mimeType = file.type;
+
+        console.log("[Client OCR] Base64 string length:", base64Data.length);
+        console.log("[Client OCR] Sending analysis POST request to /api/invoice/analyze...");
+
+        const response = await fetch("/api/invoice/analyze", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            image: base64Data,
+            mimeType: mimeType,
+            entities: entities.map(e => ({ id: e.id, name: e.name }))
+          })
+        });
+
+        console.log("[Client OCR] HTTP Response Status:", response.status);
+        const result = await response.json();
+        console.log("[Client OCR] Response JSON Payload:", result);
+
+        if (result.success && result.data) {
+          const extracted = result.data;
+          console.log("[Client OCR] Data extraction successful. Extracted fields:", extracted);
+          
+          if (extracted.supplierId) {
+            setSelectedEntityId(extracted.supplierId);
+          } else if (extracted.supplierName) {
+            const matched = entities.find(e => 
+              e.name.trim().toLowerCase() === extracted.supplierName.trim().toLowerCase()
+            );
+            if (matched) {
+              setSelectedEntityId(matched.id!);
+            } else {
+              toast.info(`اسم المورد المستخرج: "${extracted.supplierName}"، يرجى تحديده يدوياً.`);
+            }
+          }
+
+          if (extracted.invoiceNumber) {
+            setInvoiceNumber(extracted.invoiceNumber);
+          }
+
+          if (extracted.date) {
+            setInvoiceDate(extracted.date);
+          }
+
+          let extractedAmount = 0;
+          if (extracted.amount !== undefined) {
+            extractedAmount = Number(extracted.amount);
+            setAmount(extractedAmount);
+          }
+          
+          let extractedDiscount = 0;
+          if (extracted.discount !== undefined) {
+            extractedDiscount = Number(extracted.discount);
+            setDiscount(extractedDiscount);
+          }
+
+          if (extractedAmount > 0) {
+            const pct = (extractedDiscount / extractedAmount) * 100;
+            setDiscountPercentage(pct);
+          }
+
+          if (extracted.notes) {
+            setNotes(extracted.notes);
+          }
+
+          const newImg = {
+            file,
+            preview: URL.createObjectURL(file as any)
+          };
+          const updatedImages = [...images, newImg];
+          setImages(updatedImages);
+          onImagesChange(updatedImages.filter(img => img.file).map(img => img.file!));
+
+          toast.success("تم استيراد تفاصيل القائمة بنجاح!");
+        } else {
+          const errMsg = result.error || "لم يتم التعرف على تفاصيل القائمة بدقة، يرجى إدخالها يدوياً.";
+          console.error("[Client OCR] Extraction error reported by API:", errMsg);
+          toast.error(`فشل الاستخراج: ${errMsg}`);
+        }
+      } catch (err: any) {
+        console.error("[Client OCR] Network/Execution error during analysis:", err);
+        toast.error(`حدث خطأ أثناء الاتصال بالخادم: ${err.message || err}`);
+      } finally {
+        setIsAnalyzing(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleImagesSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -151,6 +267,48 @@ export const InvoiceForm = ({ entities, selectedEntity: initialEntity, onSubmit,
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="space-y-4">
+        {/* AI Multi-modal OCR Extraction */}
+        <div className="p-4 bg-primary/5 rounded-2xl border border-primary/20 space-y-3">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary animate-pulse" />
+              <span className="text-xs font-black text-primary">استيراد تفاصيل القائمة بالذكاء الاصطناعي</span>
+            </div>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            قم برفع صورة الفاتورة لاستخراج اسم المورد، رقم القائمة، التاريخ، والأسعار تلقائياً وتعبئة الحقول.
+          </p>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isAnalyzing}
+              onClick={() => document.getElementById('ai-invoice-input')?.click()}
+              className="w-full bg-background border-primary/20 hover:bg-primary/5 text-primary text-xs font-black h-11 rounded-xl gap-2 transition-all shadow-sm"
+            >
+              {isAnalyzing ? (
+                <div className="flex items-center justify-center gap-2">
+                  <div className="h-4 w-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  جاري استخراج البيانات...
+                </div>
+              ) : (
+                <div className="flex items-center justify-center gap-2">
+                  <Upload className="h-4 w-4" />
+                  استيراد من صورة
+                </div>
+              )}
+            </Button>
+            <input 
+              id="ai-invoice-input"
+              type="file" 
+              className="hidden" 
+              onChange={handleAIInvoiceImport}
+              accept="image/*"
+              disabled={isAnalyzing}
+            />
+          </div>
+        </div>
+
         {/* Supplier Selection */}
         <div className="space-y-2">
           <div className="flex justify-between items-center">
@@ -225,7 +383,8 @@ export const InvoiceForm = ({ entities, selectedEntity: initialEntity, onSubmit,
             <div className="relative">
               <Input 
                 name="invoiceNumber" 
-                defaultValue={initialData?.invoiceNumber}
+                value={invoiceNumber}
+                onChange={(e) => setInvoiceNumber(e.target.value)}
                 required 
                 placeholder="0000" 
                 className="bg-muted border-border text-foreground h-11 rounded-xl pr-10" 
@@ -239,7 +398,8 @@ export const InvoiceForm = ({ entities, selectedEntity: initialEntity, onSubmit,
               <Input 
                 name="date" 
                 type="date" 
-                defaultValue={initialData?.date ? safeFormatDate(initialData.date, 'yyyy-MM-dd', { useAr: false }) : safeFormatDate(new Date(), 'yyyy-MM-dd', { useAr: false })} 
+                value={invoiceDate}
+                onChange={(e) => setInvoiceDate(e.target.value)}
                 required 
                 className="bg-muted border-border text-foreground h-11 rounded-xl pr-10" 
               />
@@ -435,7 +595,8 @@ export const InvoiceForm = ({ entities, selectedEntity: initialEntity, onSubmit,
           <Label className="text-muted-foreground font-bold text-xs uppercase">ملاحظات إضافية</Label>
           <Input 
             name="notes" 
-            defaultValue={initialData?.notes}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
             placeholder="ملاحظات على هذه القائمة..." 
             className="bg-muted border-border text-foreground rounded-xl h-11" 
           />
